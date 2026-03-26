@@ -35,6 +35,56 @@ export async function fetchLatestRelease() {
   }
 }
 
+export async function fetchContributors() {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
+    );
+    if (!res.ok) return;
+    const contributors = await res.json();
+    if (!Array.isArray(contributors)) return;
+
+    const grid = document.getElementById("contributors-grid");
+    if (!grid) return;
+
+    grid.innerHTML = contributors
+      .map(
+        (c: {
+          login: string;
+          avatar_url: string;
+          html_url: string;
+          contributions: number;
+        }) => `
+        <a 
+          href="${c.html_url}" 
+          target="_blank" 
+          rel="noopener" 
+          class="group flex flex-col items-center p-4 rounded-2xl border border-transparent hover:bg-[#1A1A1A] hover:border-white/5 transition-all duration-300 hover:-translate-y-1 w-28 sm:w-32 shrink-0"
+        >
+          <div class="relative mb-3">
+            <img
+              src="${c.avatar_url}&s=80"
+              alt="${c.login}"
+              class="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover ring-2 ring-white/5 group-hover:ring-white/30 transition-all duration-300 relative z-10"
+            />
+            <div class="absolute inset-0 rounded-full bg-white/0 group-hover:shadow-[0_0_20px_rgba(255,255,255,0.15)] transition-all duration-300 z-0"></div>
+          </div>
+          
+          <span class="text-xs sm:text-sm font-medium text-gray-400 group-hover:text-white transition-colors truncate w-full text-center tracking-tight">
+            ${c.login}
+          </span>
+          
+          <span class="text-[9px] sm:text-[10px] font-bold text-gray-600 uppercase tracking-widest mt-1 group-hover:text-gray-500 transition-colors">
+            ${c.contributions} commits
+          </span>
+        </a>`,
+      )
+      .join("");
+  } catch {
+    // Silently fail
+  }
+}
+
 export async function fetchLatestCommit() {
   try {
     const res = await fetch(
