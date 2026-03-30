@@ -1,4 +1,5 @@
 import prodsample2 from "../assets/Product-Sample2.png";
+import { DownloadStats } from "./download-stats";
 
 export function Hero(): string {
   return `
@@ -40,6 +41,8 @@ export function Hero(): string {
           <span id="version-tag" class="text-[10px] lg:text-[11px] font-medium opacity-50 mt-1 lg:mt-1.5 uppercase tracking-wider">Loading...</span>
         </div>
       </button>
+
+      ${DownloadStats()}
     </div>
   </div>
 
