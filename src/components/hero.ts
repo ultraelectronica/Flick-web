@@ -3,19 +3,19 @@ import { DownloadStats } from "./download-stats";
 
 export function Hero(): string {
   return `
-<div id="hero-section" class="relative w-full h-[100dvh] overflow-hidden bg-[#101010] font-sans">
+<div id="hero-section" class="relative w-full min-h-[100dvh] overflow-hidden bg-[#101010] font-sans lg:h-[100dvh]">
 
   <img 
     src="${prodsample2}" 
     alt="Flick Player Interface" 
-    class="absolute bottom-0 right-0 w-full h-[65%] lg:top-0 lg:h-full lg:w-[60%] object-cover object-top lg:object-left-top z-0"
+    class="absolute bottom-0 right-0 w-full h-[65dvh] lg:top-0 lg:h-full lg:w-[60%] object-cover object-top lg:object-left-top z-0"
   >
 
-  <div class="absolute inset-0 bg-gradient-to-b from-[#101010] from-[35%] via-[#101010]/80 via-[50%] to-transparent lg:hidden z-[5]"></div>
+  <div class="absolute inset-x-0 top-0 h-[100dvh] bg-gradient-to-b from-[#101010] from-[35%] via-[#101010]/80 via-[50%] to-transparent lg:hidden z-[5]"></div>
 
   <div class="hidden lg:block absolute inset-0 bg-gradient-to-r from-[#101010] from-[40%] via-[#101010]/90 via-[55%] to-transparent z-[5]"></div>
 
-  <div class="absolute top-0 left-0 w-full h-full flex flex-col justify-start lg:justify-center pt-[15vh] lg:pt-0 z-10 px-6 md:px-12 lg:px-16">
+  <div class="relative z-10 flex min-h-[100dvh] w-full flex-col justify-start px-6 pt-[15vh] pb-12 md:px-12 lg:absolute lg:top-0 lg:left-0 lg:h-full lg:justify-center lg:px-16 lg:pt-0 lg:pb-0">
     
     <div class="w-full lg:w-[50%] max-w-2xl lg:pr-8 xl:pr-12 relative z-10">
       
