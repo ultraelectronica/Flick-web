@@ -41,6 +41,7 @@ const monthDateFormatter = new Intl.DateTimeFormat("en-US", {
 
 type ChartPeriod = keyof typeof PERIOD_LABELS;
 type BucketResolution = "day" | "week" | "month";
+type TimelineChartMode = "desktop" | "mobile";
 
 interface GitHubReleaseAsset {
   browser_download_url: string;
@@ -70,9 +71,29 @@ interface TimelineBarPoint {
   value: number;
 }
 
+interface TimelineChartLayout {
+  chartHeight: number;
+  chartWidth: number;
+  emptyMinHeightClass: string;
+  labelFrequency: number;
+  maxBarWidth: number;
+  minBarWidth: number;
+  mode: TimelineChartMode;
+  paddingBottom: number;
+  paddingLeft: number;
+  paddingRight: number;
+  paddingTop: number;
+  showScrollHint: boolean;
+  svgClassName: string;
+  xAxisFontSize: number;
+  yAxisFontSize: number;
+}
+
 let releaseCachePromise: Promise<GitHubRelease[]> | null = null;
 let repositoryInfoCachePromise: Promise<GitHubRepositoryInfo> | null = null;
 let activeReleasePeriod: ChartPeriod = "90d";
+let releaseNotesResizeListenerBound = false;
+let releaseNotesResizeTimer = 0;
 
 function formatCount(value: number): string {
   return numberFormatter.format(value);
@@ -371,6 +392,84 @@ function buildGitHubDownloadTimeline(
     });
 }
 
+function isMobileChartViewport(): boolean {
+  return window.matchMedia("(max-width: 767px)").matches;
+}
+
+function getTimelineChartLayout(
+  containerWidth: number,
+  pointsLength: number,
+): TimelineChartLayout {
+  const safeContainerWidth = Math.max(containerWidth, 320);
+  const safePointCount = Math.max(pointsLength, 1);
+
+  if (isMobileChartViewport()) {
+    const paddingLeft = 50;
+    const paddingRight = 16;
+    const slotWidth =
+      safePointCount <= 5 ? 70 : safePointCount <= 10 ? 58 : safePointCount <= 18 ? 50 : 44;
+    const chartWidth = Math.max(
+      safeContainerWidth,
+      paddingLeft + paddingRight + safePointCount * slotWidth,
+    );
+    const targetLabelCount = Math.min(safePointCount, 8);
+
+    return {
+      chartHeight: 300,
+      chartWidth,
+      emptyMinHeightClass: "min-h-[300px]",
+      labelFrequency: Math.max(1, Math.ceil(safePointCount / targetLabelCount)),
+      maxBarWidth: 30,
+      minBarWidth: 18,
+      mode: "mobile",
+      paddingBottom: 68,
+      paddingLeft,
+      paddingRight,
+      paddingTop: 18,
+      showScrollHint: chartWidth > safeContainerWidth + 24,
+      svgClassName: "block h-[300px] w-auto max-w-none",
+      xAxisFontSize: 10,
+      yAxisFontSize: 10,
+    };
+  }
+
+  const targetLabelCount = Math.min(safePointCount, 7);
+
+  return {
+    chartHeight: 380,
+    chartWidth: safeContainerWidth,
+    emptyMinHeightClass: "min-h-[340px] md:min-h-[380px]",
+    labelFrequency: Math.max(1, Math.ceil(safePointCount / targetLabelCount)),
+    maxBarWidth: 52,
+    minBarWidth: 14,
+    mode: "desktop",
+    paddingBottom: 60,
+    paddingLeft: 60,
+    paddingRight: 20,
+    paddingTop: 24,
+    showScrollHint: false,
+    svgClassName: "block w-full h-auto",
+    xAxisFontSize: 11,
+    yAxisFontSize: 11,
+  };
+}
+
+function getTimelineEmptyStateMarkup(containerWidth: number, emptyLabel: string): string {
+  const layout = getTimelineChartLayout(containerWidth, 0);
+
+  return `
+    <div class="${layout.emptyMinHeightClass} rounded-[1.25rem] border border-dashed border-white/10 bg-black/15 flex items-center justify-center text-center px-6 text-sm text-gray-500">
+      ${emptyLabel}
+    </div>`;
+}
+
+function renderTimelineEmptyState(containerId: string, emptyLabel: string): void {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  container.innerHTML = getTimelineEmptyStateMarkup(container.clientWidth, emptyLabel);
+}
+
 function renderTimelineChart(
   containerId: string,
   points: TimelineBarPoint[],
@@ -383,27 +482,30 @@ function renderTimelineChart(
   const container = document.getElementById(containerId);
   if (!container) return;
 
+  const containerWidth = Math.max(container.clientWidth, 320);
+
   if (points.length === 0) {
-    container.innerHTML = `
-      <div class="min-h-[288px] rounded-[1.25rem] border border-dashed border-white/10 bg-black/15 flex items-center justify-center text-center px-6 text-sm text-gray-500">
-        ${options.emptyLabel}
-      </div>`;
+    container.innerHTML = getTimelineEmptyStateMarkup(containerWidth, options.emptyLabel);
     return;
   }
 
-  const chartWidth = 760;
-  const chartHeight = 288;
-  const paddingTop = 18;
-  const paddingRight = 18;
-  const paddingBottom = 52;
-  const paddingLeft = 54;
+  const layout = getTimelineChartLayout(containerWidth, points.length);
+  const chartWidth = layout.chartWidth;
+  const chartHeight = layout.chartHeight;
+  const paddingTop = layout.paddingTop;
+  const paddingRight = layout.paddingRight;
+  const paddingBottom = layout.paddingBottom;
+  const paddingLeft = layout.paddingLeft;
   const innerWidth = chartWidth - paddingLeft - paddingRight;
   const innerHeight = chartHeight - paddingTop - paddingBottom;
   const maxValue = Math.max(...points.map((point) => point.value), 1);
   const chartMax = getChartMax(maxValue);
   const slotWidth = innerWidth / points.length;
-  const barWidth = Math.max(10, Math.min(42, slotWidth * 0.64));
-  const labelFrequency = points.length <= 6 ? 1 : Math.ceil(points.length / 6);
+  const barWidth = Math.max(
+    layout.minBarWidth,
+    Math.min(layout.maxBarWidth, slotWidth * (layout.mode === "mobile" ? 0.58 : 0.64)),
+  );
+  const labelFrequency = layout.labelFrequency;
 
   const gridLines = Array.from({ length: 5 }, (_, index) => {
     const value = (chartMax / 4) * index;
@@ -413,7 +515,7 @@ function renderTimelineChart(
     return `
       <g>
         <line x1="${paddingLeft}" y1="${y}" x2="${chartWidth - paddingRight}" y2="${y}" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-        <text x="${paddingLeft - 10}" y="${y + 4}" fill="rgba(156,163,175,0.8)" text-anchor="end" font-size="11">
+        <text x="${paddingLeft - 10}" y="${y + 4}" fill="rgba(156,163,175,0.8)" text-anchor="end" font-size="${layout.yAxisFontSize}">
           ${formatCount(Math.round(value))}
         </text>
       </g>`;
@@ -452,7 +554,7 @@ function renderTimelineChart(
                   y="${chartHeight - 18}"
                   fill="rgba(156,163,175,0.82)"
                   text-anchor="middle"
-                  font-size="11"
+                  font-size="${layout.xAxisFontSize}"
                 >
                   ${escapeHtml(point.shortLabel)}
                 </text>`
@@ -462,11 +564,33 @@ function renderTimelineChart(
     })
     .join("");
 
-  container.innerHTML = `
-    <svg viewBox="0 0 ${chartWidth} ${chartHeight}" class="w-full h-[288px]">
+  const svgMarkup = `
+    <svg
+      viewBox="0 0 ${chartWidth} ${chartHeight}"
+      width="${chartWidth}"
+      height="${chartHeight}"
+      class="${layout.svgClassName}"
+      aria-label="Timeline bar chart"
+      role="img"
+    >
       ${gridLines}
       ${bars}
     </svg>`;
+
+  container.innerHTML =
+    layout.mode === "mobile"
+      ? `
+        <div class="w-full">
+          <div class="w-full overflow-x-auto pb-2 [scrollbar-color:rgba(255,255,255,0.18)_transparent] [scrollbar-width:thin]">
+            ${svgMarkup}
+          </div>
+          ${
+            layout.showScrollHint
+              ? '<p class="mt-3 text-[10px] font-bold tracking-[0.18em] uppercase text-gray-500 md:hidden">Swipe horizontally to inspect the full timeline</p>'
+              : ""
+          }
+        </div>`
+      : svgMarkup;
 }
 
 function getTimelineRangeLabel(points: TimelineBarPoint[]): string {
@@ -764,6 +888,23 @@ async function refreshReleaseNotesAnalyticsIfVisible(): Promise<void> {
   }
 }
 
+function ensureReleaseNotesResizeListener(): void {
+  if (releaseNotesResizeListenerBound) return;
+
+  window.addEventListener(
+    "resize",
+    () => {
+      window.clearTimeout(releaseNotesResizeTimer);
+      releaseNotesResizeTimer = window.setTimeout(() => {
+        void refreshReleaseNotesAnalyticsIfVisible();
+      }, 120);
+    },
+    { passive: true },
+  );
+
+  releaseNotesResizeListenerBound = true;
+}
+
 async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
   if (!releaseCachePromise) {
     releaseCachePromise = (async () => {
@@ -864,6 +1005,7 @@ export async function initReleaseNotesPage() {
   renderWebsiteDownloadClicks();
   renderRepositoryStars();
   updateReleasePeriodButtons(activeReleasePeriod);
+  ensureReleaseNotesResizeListener();
 
   try {
     const [releases, repositoryInfo] = await Promise.all([
@@ -885,19 +1027,13 @@ export async function initReleaseNotesPage() {
       };
     });
   } catch {
-    setInnerHtml(
+    renderTimelineEmptyState(
       "release-downloads-chart",
-      `
-        <div class="min-h-[288px] rounded-[1.25rem] border border-dashed border-white/10 bg-black/15 flex items-center justify-center text-center px-6 text-sm text-gray-500">
-          Release history could not be loaded from GitHub.
-        </div>`,
+      "Release history could not be loaded from GitHub.",
     );
-    setInnerHtml(
+    renderTimelineEmptyState(
       "website-downloads-chart",
-      `
-        <div class="min-h-[288px] rounded-[1.25rem] border border-dashed border-white/10 bg-black/15 flex items-center justify-center text-center px-6 text-sm text-gray-500">
-          Local click history is still available once downloads are triggered from this browser.
-        </div>`,
+      "Local click history is still available once downloads are triggered from this browser.",
     );
     setInnerHtml(
       "release-notes-list",

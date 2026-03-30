@@ -20,7 +20,7 @@ export function ReleaseNotesPage(): string {
         href="#/"
         class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[11px] font-bold tracking-[0.24em] uppercase text-gray-400 transition-colors hover:text-white hover:bg-white/10"
       >
-        Home
+        Releases
       </a>
 
       <p class="mt-6 text-[11px] font-bold tracking-[0.28em] uppercase text-gray-500">
@@ -91,9 +91,9 @@ export function ReleaseNotesPage(): string {
         </div>
       </div>
 
-      <div class="mt-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <article class="rounded-[1.75rem] border border-white/10 bg-black/20 p-5 md:p-6">
-          <div id="release-downloads-chart" class="min-h-[320px] rounded-[1.5rem] border border-white/5 bg-white/[0.03] p-4 flex items-center justify-center text-sm text-gray-500">
+      <div class="mt-8 grid grid-cols-1 2xl:grid-cols-2 gap-6 xl:gap-8">
+        <article class="rounded-[1.75rem] border border-white/10 bg-black/20 p-5 md:p-7">
+          <div id="release-downloads-chart" class="min-h-[320px] md:min-h-[360px] rounded-[1.5rem] border border-white/5 bg-white/[0.03] p-3 sm:p-4 md:p-5 text-sm text-gray-500 overflow-hidden">
             Preparing timeline...
           </div>
 
@@ -116,8 +116,8 @@ export function ReleaseNotesPage(): string {
           </div>
         </article>
 
-        <article class="rounded-[1.75rem] border border-white/10 bg-black/20 p-5 md:p-6">
-          <div id="website-downloads-chart" class="min-h-[320px] rounded-[1.5rem] border border-white/5 bg-white/[0.03] p-4 flex items-center justify-center text-sm text-gray-500">
+        <article class="rounded-[1.75rem] border border-white/10 bg-black/20 p-5 md:p-7">
+          <div id="website-downloads-chart" class="min-h-[320px] md:min-h-[360px] rounded-[1.5rem] border border-white/5 bg-white/[0.03] p-3 sm:p-4 md:p-5 text-sm text-gray-500 overflow-hidden">
             Preparing timeline...
           </div>
 
