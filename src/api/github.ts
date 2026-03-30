@@ -4,7 +4,8 @@ const REPO_OWNER = "ultraelectronica";
 const REPO_NAME = "Flick";
 const RELEASES_PER_PAGE = 100;
 const MAX_RELEASE_PAGES = 10;
-const LEGACY_WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY = "flick-website-download-clicks";
+const LEGACY_WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY =
+  "flick-website-download-clicks";
 const WEBSITE_DOWNLOAD_CLICK_TIMESTAMPS_STORAGE_KEY =
   "flick-website-download-click-timestamps";
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -146,7 +147,10 @@ function getTrackedAssets(release: GitHubRelease): GitHubReleaseAsset[] {
 
 function getReleaseDownloadTotal(release: GitHubRelease): number {
   return getTrackedAssets(release).reduce((total, asset) => {
-    return total + (typeof asset.download_count === "number" ? asset.download_count : 0);
+    return (
+      total +
+      (typeof asset.download_count === "number" ? asset.download_count : 0)
+    );
   }, 0);
 }
 
@@ -189,7 +193,9 @@ function getChartMax(maxValue: number): number {
 
 function getLegacyWebsiteDownloadClicks(): number {
   try {
-    const rawCount = window.localStorage.getItem(LEGACY_WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY);
+    const rawCount = window.localStorage.getItem(
+      LEGACY_WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY,
+    );
     const parsedCount = Number.parseInt(rawCount ?? "0", 10);
     return Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0;
   } catch {
@@ -207,7 +213,9 @@ function getStoredWebsiteDownloadClickTimestamps(): number[] {
 
     return parsedTimestamps
       .map((timestamp) =>
-        typeof timestamp === "number" ? timestamp : new Date(String(timestamp)).getTime(),
+        typeof timestamp === "number"
+          ? timestamp
+          : new Date(String(timestamp)).getTime(),
       )
       .filter((timestamp) => Number.isFinite(timestamp))
       .sort((left, right) => left - right);
@@ -229,17 +237,22 @@ function setStoredWebsiteDownloadClickTimestamps(timestamps: number[]): void {
 
 function getWebsiteDownloadClickTotal(): number {
   return (
-    getLegacyWebsiteDownloadClicks() + getStoredWebsiteDownloadClickTimestamps().length
+    getLegacyWebsiteDownloadClicks() +
+    getStoredWebsiteDownloadClickTimestamps().length
   );
 }
 
-function renderWebsiteDownloadClicks(count = getWebsiteDownloadClickTotal()): void {
+function renderWebsiteDownloadClicks(
+  count = getWebsiteDownloadClickTotal(),
+): void {
   setTextContent("website-download-count", formatCount(count));
   setTextContent("release-website-total", formatCount(count));
 }
 
 function bindDownloadButton(downloadUrl: string): void {
-  const downloadBtn = document.getElementById("download-btn") as HTMLButtonElement | null;
+  const downloadBtn = document.getElementById(
+    "download-btn",
+  ) as HTMLButtonElement | null;
   if (!downloadBtn) return;
 
   downloadBtn.onclick = () => {
@@ -269,7 +282,10 @@ function getBucketResolution(period: ChartPeriod): BucketResolution {
   return "month";
 }
 
-function getBucketStart(timestamp: number, resolution: BucketResolution): number {
+function getBucketStart(
+  timestamp: number,
+  resolution: BucketResolution,
+): number {
   const date = new Date(timestamp);
   date.setHours(0, 0, 0, 0);
 
@@ -286,7 +302,10 @@ function getBucketStart(timestamp: number, resolution: BucketResolution): number
   return date.getTime();
 }
 
-function addBucketStep(timestamp: number, resolution: BucketResolution): number {
+function addBucketStep(
+  timestamp: number,
+  resolution: BucketResolution,
+): number {
   const date = new Date(timestamp);
 
   if (resolution === "day") {
@@ -303,7 +322,10 @@ function addBucketStep(timestamp: number, resolution: BucketResolution): number 
   return date.getTime();
 }
 
-function formatBucketShortLabel(timestamp: number, resolution: BucketResolution): string {
+function formatBucketShortLabel(
+  timestamp: number,
+  resolution: BucketResolution,
+): string {
   if (resolution === "month") {
     return monthDateFormatter.format(timestamp);
   }
@@ -311,7 +333,10 @@ function formatBucketShortLabel(timestamp: number, resolution: BucketResolution)
   return shortDateFormatter.format(timestamp);
 }
 
-function formatBucketDetail(timestamp: number, resolution: BucketResolution): string {
+function formatBucketDetail(
+  timestamp: number,
+  resolution: BucketResolution,
+): string {
   if (resolution === "week") {
     return `Week of ${fullDateFormatter.format(timestamp)}`;
   }
@@ -329,7 +354,8 @@ function buildWebsiteDownloadTimeline(period: ChartPeriod): TimelineBarPoint[] {
 
   const resolution = getBucketResolution(period);
   const now = Date.now();
-  const rawStart = period === "all" ? timestamps[0] : getChartPeriodStart(period, now);
+  const rawStart =
+    period === "all" ? timestamps[0] : getChartPeriodStart(period, now);
   const start = getBucketStart(rawStart, resolution);
   const end = getBucketStart(now, resolution);
   const countsByBucket = new Map<number, number>();
@@ -346,7 +372,11 @@ function buildWebsiteDownloadTimeline(period: ChartPeriod): TimelineBarPoint[] {
 
   const points: TimelineBarPoint[] = [];
 
-  for (let cursor = start; cursor <= end; cursor = addBucketStep(cursor, resolution)) {
+  for (
+    let cursor = start;
+    cursor <= end;
+    cursor = addBucketStep(cursor, resolution)
+  ) {
     const value = countsByBucket.get(cursor) ?? 0;
     points.push({
       detail: formatBucketDetail(cursor, resolution),
@@ -378,7 +408,8 @@ function buildGitHubDownloadTimeline(
     .filter((release) => getReleasePublishedTimestamp(release) > 0)
     .sort(
       (left, right) =>
-        getReleasePublishedTimestamp(left) - getReleasePublishedTimestamp(right),
+        getReleasePublishedTimestamp(left) -
+        getReleasePublishedTimestamp(right),
     )
     .map((release) => {
       const publishedTimestamp = getReleasePublishedTimestamp(release);
@@ -407,7 +438,13 @@ function getTimelineChartLayout(
     const paddingLeft = 50;
     const paddingRight = 16;
     const slotWidth =
-      safePointCount <= 5 ? 70 : safePointCount <= 10 ? 58 : safePointCount <= 18 ? 50 : 44;
+      safePointCount <= 5
+        ? 70
+        : safePointCount <= 10
+          ? 58
+          : safePointCount <= 18
+            ? 50
+            : 44;
     const chartWidth = Math.max(
       safeContainerWidth,
       paddingLeft + paddingRight + safePointCount * slotWidth,
@@ -454,7 +491,10 @@ function getTimelineChartLayout(
   };
 }
 
-function getTimelineEmptyStateMarkup(containerWidth: number, emptyLabel: string): string {
+function getTimelineEmptyStateMarkup(
+  containerWidth: number,
+  emptyLabel: string,
+): string {
   const layout = getTimelineChartLayout(containerWidth, 0);
 
   return `
@@ -463,11 +503,17 @@ function getTimelineEmptyStateMarkup(containerWidth: number, emptyLabel: string)
     </div>`;
 }
 
-function renderTimelineEmptyState(containerId: string, emptyLabel: string): void {
+function renderTimelineEmptyState(
+  containerId: string,
+  emptyLabel: string,
+): void {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  container.innerHTML = getTimelineEmptyStateMarkup(container.clientWidth, emptyLabel);
+  container.innerHTML = getTimelineEmptyStateMarkup(
+    container.clientWidth,
+    emptyLabel,
+  );
 }
 
 function renderTimelineChart(
@@ -485,7 +531,10 @@ function renderTimelineChart(
   const containerWidth = Math.max(container.clientWidth, 320);
 
   if (points.length === 0) {
-    container.innerHTML = getTimelineEmptyStateMarkup(containerWidth, options.emptyLabel);
+    container.innerHTML = getTimelineEmptyStateMarkup(
+      containerWidth,
+      options.emptyLabel,
+    );
     return;
   }
 
@@ -503,14 +552,16 @@ function renderTimelineChart(
   const slotWidth = innerWidth / points.length;
   const barWidth = Math.max(
     layout.minBarWidth,
-    Math.min(layout.maxBarWidth, slotWidth * (layout.mode === "mobile" ? 0.58 : 0.64)),
+    Math.min(
+      layout.maxBarWidth,
+      slotWidth * (layout.mode === "mobile" ? 0.58 : 0.64),
+    ),
   );
   const labelFrequency = layout.labelFrequency;
 
   const gridLines = Array.from({ length: 5 }, (_, index) => {
     const value = (chartMax / 4) * index;
-    const y =
-      paddingTop + innerHeight - (value / chartMax) * innerHeight;
+    const y = paddingTop + innerHeight - (value / chartMax) * innerHeight;
 
     return `
       <g>
@@ -526,8 +577,7 @@ function renderTimelineChart(
       const scaledHeight =
         point.value > 0 ? (point.value / chartMax) * innerHeight : 0;
       const displayHeight = point.value > 0 ? scaledHeight : 2;
-      const x =
-        paddingLeft + index * slotWidth + (slotWidth - barWidth) / 2;
+      const x = paddingLeft + index * slotWidth + (slotWidth - barWidth) / 2;
       const y = paddingTop + innerHeight - displayHeight;
       const shouldRenderLabel =
         index % labelFrequency === 0 || index === points.length - 1;
@@ -612,6 +662,10 @@ function renderGitHubDownloadCount(releases: GitHubRelease[]): void {
 function formatInlineMarkdown(value: string): string {
   return escapeHtml(value)
     .replace(
+      /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g,
+      '<img src="$2" alt="$1" data-release-img class="rounded-2xl h-48 w-auto object-cover cursor-zoom-in hover:brightness-75 transition-all inline-block mr-4 mt-4 shadow-lg border border-white/10" loading="eager" />',
+    )
+    .replace(
       /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
       '<a href="$2" target="_blank" rel="noopener" class="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">$1</a>',
     )
@@ -619,7 +673,10 @@ function formatInlineMarkdown(value: string): string {
       /`([^`]+)`/g,
       '<code class="rounded-md bg-white/10 px-1.5 py-0.5 text-[0.92em] text-white">$1</code>',
     )
-    .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-white">$1</strong>');
+    .replace(
+      /\*\*([^*]+)\*\*/g,
+      '<strong class="font-semibold text-white">$1</strong>',
+    );
 }
 
 function renderReleaseBody(markdown?: string): string {
@@ -684,6 +741,23 @@ function renderReleaseBody(markdown?: string): string {
       return;
     }
 
+    const imgTagMatch = line.match(
+      /^<img\s+[^>]*src=["'](https?:\/\/[^"']+)["'][^>]*\/?>/i,
+    );
+    if (imgTagMatch) {
+      flushParagraph();
+      flushList();
+
+      const srcMatch = line.match(/src=["'](https?:\/\/[^"']+)["']/i);
+      const altMatch = line.match(/alt=["']([^"']*)["']/i);
+      const src = srcMatch ? srcMatch[1] : "";
+      const alt = altMatch ? escapeHtml(altMatch[1]) : "";
+
+      blocks.push(`
+        <img src="${src}" alt="${alt}" data-release-img class="rounded-2xl h-48 w-auto object-cover cursor-zoom-in hover:brightness-75 transition-all inline-block mr-4 mt-4 shadow-lg border border-white/10" loading="eager" />`);
+      return;
+    }
+
     const listItemMatch =
       line.match(/^[-*]\s+(.+)$/) ?? line.match(/^\d+\.\s+(.+)$/);
     if (listItemMatch) {
@@ -720,7 +794,8 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
       const downloadCount = formatCount(getReleaseDownloadTotal(release));
       const assetCount = formatCount(getTrackedAssets(release).length);
       const releaseType = release.prerelease ? "Prerelease" : "Release";
-      const releaseHtmlUrl = release.html_url ?? getReleasePageUrl(release.tag_name);
+      const releaseHtmlUrl =
+        release.html_url ?? getReleasePageUrl(release.tag_name);
 
       return `
         <article class="rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#191919] to-[#111111] p-6 md:p-8 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
@@ -767,9 +842,17 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
             </div>
           </div>
 
-          <div class="mt-6 border-t border-white/10 pt-6">
-            ${renderReleaseBody(release.body)}
-          </div>
+          <details class="group mt-6 border-t border-white/10 pt-6">
+            <summary class="flex cursor-pointer items-center justify-between font-semibold text-gray-300 hover:text-white transition-colors list-none select-none [&::-webkit-details-marker]:hidden">
+              <span class="text-[13px] tracking-[0.1em] uppercase">Release Notes</span>
+              <span class="transition-transform duration-300 group-open:rotate-180 bg-white/5 border border-white/10 p-1.5 rounded-full">
+                <svg fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="18"><path d="M6 9l6 6 6-6"></path></svg>
+              </span>
+            </summary>
+            <div class="mt-6 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+              ${renderReleaseBody(release.body)}
+            </div>
+          </details>
         </article>`;
     })
     .join("");
@@ -787,7 +870,10 @@ function updateReleasePeriodButtons(period: ChartPeriod): void {
     button.classList.toggle("bg-white", isActive);
     button.classList.toggle("text-black", isActive);
     button.classList.toggle("border-white/30", isActive);
-    button.classList.toggle("shadow-[0_0_24px_rgba(255,255,255,0.16)]", isActive);
+    button.classList.toggle(
+      "shadow-[0_0_24px_rgba(255,255,255,0.16)]",
+      isActive,
+    );
     button.classList.toggle("bg-white/5", !isActive);
     button.classList.toggle("text-gray-400", !isActive);
     button.classList.toggle("border-white/10", !isActive);
@@ -814,12 +900,18 @@ function renderReleaseNotesAnalytics(
   renderGitHubDownloadCount(releases);
   renderWebsiteDownloadClicks();
 
-  setTextContent("release-period-downloads", formatCount(releaseDownloadsInPeriod));
+  setTextContent(
+    "release-period-downloads",
+    formatCount(releaseDownloadsInPeriod),
+  );
   setTextContent(
     "release-period-downloads-label",
     `Downloads from releases published across ${getPeriodRangeLabel(period)}.`,
   );
-  setTextContent("release-period-release-count", formatCount(releasesInPeriod.length));
+  setTextContent(
+    "release-period-release-count",
+    formatCount(releasesInPeriod.length),
+  );
   setTextContent(
     "release-period-release-count-label",
     period === "all"
@@ -915,7 +1007,9 @@ async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
           `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`,
         );
         if (!res.ok) {
-          throw new Error(`GitHub releases request failed with status ${res.status}`);
+          throw new Error(
+            `GitHub releases request failed with status ${res.status}`,
+          );
         }
 
         const pageReleases: unknown = await res.json();
@@ -929,7 +1023,8 @@ async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
         .filter((release) => !release.draft)
         .sort(
           (left, right) =>
-            getReleasePublishedTimestamp(right) - getReleasePublishedTimestamp(left),
+            getReleasePublishedTimestamp(right) -
+            getReleasePublishedTimestamp(left),
         );
     })();
   }
@@ -949,7 +1044,9 @@ async function fetchRepositoryInfo(): Promise<GitHubRepositoryInfo> {
         `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`,
       );
       if (!res.ok) {
-        throw new Error(`GitHub repository request failed with status ${res.status}`);
+        throw new Error(
+          `GitHub repository request failed with status ${res.status}`,
+        );
       }
 
       const repositoryInfo: unknown = await res.json();
@@ -990,7 +1087,8 @@ export async function fetchLatestRelease() {
     ]);
     if (releases.length === 0) return;
 
-    const latestRelease = releases.find((release) => !release.prerelease) ?? releases[0];
+    const latestRelease =
+      releases.find((release) => !release.prerelease) ?? releases[0];
 
     setTextContent("version-tag", `v${latestRelease.tag_name} • Android APK`);
     renderGitHubDownloadCount(releases);
@@ -1021,7 +1119,9 @@ export async function initReleaseNotesPage() {
     );
     periodButtons.forEach((button) => {
       button.onclick = () => {
-        const nextPeriod = button.dataset.releasePeriod as ChartPeriod | undefined;
+        const nextPeriod = button.dataset.releasePeriod as
+          | ChartPeriod
+          | undefined;
         if (!nextPeriod) return;
         renderReleaseNotesAnalytics(releases, nextPeriod);
       };

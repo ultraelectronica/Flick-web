@@ -21,7 +21,9 @@ import {
 type AppRoute = "home" | "release-notes";
 
 function getCurrentRoute(): AppRoute {
-  return window.location.hash.includes("release-notes") ? "release-notes" : "home";
+  return window.location.hash.includes("release-notes")
+    ? "release-notes"
+    : "home";
 }
 
 function renderHomePage(): string {
@@ -38,7 +40,8 @@ function renderApp(): void {
   if (!app) return;
 
   const route = getCurrentRoute();
-  const pageMarkup = route === "release-notes" ? ReleaseNotesPage() : renderHomePage();
+  const pageMarkup =
+    route === "release-notes" ? ReleaseNotesPage() : renderHomePage();
 
   app.innerHTML = `
     ${Navbar(route)}
@@ -53,6 +56,7 @@ function renderApp(): void {
 
   if (route === "release-notes") {
     void initReleaseNotesPage();
+    initImageModal();
     return;
   }
 
@@ -67,3 +71,29 @@ window.addEventListener("hashchange", () => {
 });
 
 renderApp();
+
+function initImageModal(): void {
+  const modal = document.getElementById(
+    "image-modal",
+  ) as HTMLDialogElement | null;
+  const modalImg = document.getElementById(
+    "image-modal-img",
+  ) as HTMLImageElement | null;
+  const closeBtn = document.getElementById("image-modal-close");
+  if (!modal || !modalImg) return;
+
+  document.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "IMG" && target.hasAttribute("data-release-img")) {
+      modalImg.src = (target as HTMLImageElement).src;
+      modal.showModal();
+    }
+  });
+
+  modalImg.addEventListener("click", () => modal.close());
+  closeBtn?.addEventListener("click", () => modal.close());
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.close();
+  });
+}
