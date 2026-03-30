@@ -15,15 +15,15 @@ export function Hero(): string {
 
   <div class="hidden lg:block absolute inset-0 bg-gradient-to-r from-[#101010] from-[40%] via-[#101010]/90 via-[55%] to-transparent z-[5]"></div>
 
-  <div class="relative z-10 flex min-h-[100dvh] w-full flex-col justify-start px-6 pt-[15vh] pb-12 md:px-12 lg:absolute lg:top-0 lg:left-0 lg:h-full lg:justify-center lg:px-16 lg:pt-0 lg:pb-0">
+  <div class="relative z-10 flex min-h-[100dvh] w-full flex-col justify-start px-6 pt-[15vh] pb-12 md:px-12 lg:absolute lg:top-0 lg:left-0 lg:h-full lg:justify-center lg:px-16 lg:pt-24 lg:pb-0">
     
     <div class="w-full lg:w-[50%] max-w-2xl lg:pr-8 xl:pr-12 relative z-10">
       
-      <h1 class="text-4xl md:text-5xl lg:text-[3.25rem] xl:text-6xl font-bold text-white mb-4 lg:mb-6 tracking-tight text-balance leading-tight drop-shadow-xl lg:drop-shadow-none">
+      <h1 class="text-4xl md:text-5xl lg:text-[3.25rem] xl:text-6xl font-bold text-white mb-4 tracking-tight text-balance leading-tight drop-shadow-xl lg:drop-shadow-none">
         Built for High Fidelity. <br>Crafted by Audio Enthusiasts.
       </h1>
       
-      <p class="text-base md:text-lg text-gray-300 mb-8 lg:mb-10 text-left lg:text-justify hyphens-auto leading-relaxed drop-shadow-md lg:drop-shadow-none max-w-xl lg:max-w-none">
+      <p class="text-base md:text-lg text-gray-300 mb-6 lg:mb-8 text-left lg:text-justify hyphens-auto leading-relaxed drop-shadow-md lg:drop-shadow-none max-w-xl lg:max-w-none">
         Flick Player is a high-performance music player application built with Flutter and Rust, designed primarily for audiophiles who demand bit-perfect audio playback through external DACs and amplifiers.
       </p>
 
