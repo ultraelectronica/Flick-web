@@ -139,6 +139,28 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function isHttpsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isGitHubUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === "github.com" ||
+      parsed.hostname.endsWith(".github.com") ||
+      parsed.hostname.endsWith(".githubusercontent.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function setTextContent(id: string, value: string): void {
   const element = document.getElementById(id);
   if (element) {
@@ -186,7 +208,9 @@ function getReleaseDownloadTotal(release: GitHubRelease): number {
 
 function getReleaseDownloadUrl(release: GitHubRelease): string {
   const apkAsset = release.assets?.find((asset) => asset.name.endsWith(".apk"));
-  return apkAsset?.browser_download_url ?? getReleasePageUrl(release.tag_name);
+  const url = apkAsset?.browser_download_url;
+  if (url && isGitHubUrl(url)) return url;
+  return getReleasePageUrl(release.tag_name);
 }
 
 function getReleasePublishedTimestamp(release: GitHubRelease): number {
@@ -693,11 +717,17 @@ function formatInlineMarkdown(value: string): string {
   return escapeHtml(value)
     .replace(
       /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g,
-      '<img src="$2" alt="$1" data-release-img class="rounded-2xl h-48 w-auto object-cover cursor-zoom-in hover:brightness-75 transition-all inline-block mr-4 mt-4 shadow-lg border border-white/10" loading="eager" />',
+      (_m, alt: string, url: string) =>
+        isHttpsUrl(url)
+          ? `<img src="${url}" alt="${alt}" data-release-img class="rounded-2xl h-48 w-auto object-cover cursor-zoom-in hover:brightness-75 transition-all inline-block mr-4 mt-4 shadow-lg border border-white/10" loading="eager" />`
+          : "",
     )
     .replace(
       /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener" class="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">$1</a>',
+      (_m, text: string, url: string) =>
+        isHttpsUrl(url)
+          ? `<a href="${url}" target="_blank" rel="noopener" class="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">${text}</a>`
+          : text,
     )
     .replace(
       /`([^`]+)`/g,
@@ -783,6 +813,8 @@ function renderReleaseBody(markdown?: string): string {
       const src = srcMatch ? srcMatch[1] : "";
       const alt = altMatch ? escapeHtml(altMatch[1]) : "";
 
+      if (!isHttpsUrl(src)) return;
+
       blocks.push(`
         <img src="${src}" alt="${alt}" data-release-img class="rounded-2xl h-48 w-auto object-cover cursor-zoom-in hover:brightness-75 transition-all inline-block mr-4 mt-4 shadow-lg border border-white/10" loading="eager" />`);
       return;
@@ -825,7 +857,9 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
       const assetCount = formatCount(getTrackedAssets(release).length);
       const releaseType = release.prerelease ? "Prerelease" : "Release";
       const releaseHtmlUrl =
-        release.html_url ?? getReleasePageUrl(release.tag_name);
+        release.html_url && isGitHubUrl(release.html_url)
+          ? release.html_url
+          : getReleasePageUrl(release.tag_name);
 
       return `
         <article class="rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#191919] to-[#111111] p-6 md:p-8 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
@@ -1222,30 +1256,38 @@ export async function fetchContributors() {
           avatar_url: string;
           html_url: string;
           contributions: number;
-        }) => `
+        }) => {
+          const safeLogin = escapeHtml(c.login);
+          const safeAvatarUrl =
+            isGitHubUrl(c.avatar_url) ? escapeHtml(`${c.avatar_url}&s=80`) : "";
+          const safeHtmlUrl =
+            isGitHubUrl(c.html_url) ? escapeHtml(c.html_url) : "#";
+
+          return `
         <a
-          href="${c.html_url}"
+          href="${safeHtmlUrl}"
           target="_blank"
           rel="noopener"
           class="group flex flex-col items-center p-4 rounded-2xl border border-transparent hover:bg-[#1A1A1A] hover:border-white/5 transition-all duration-300 hover:-translate-y-1 w-28 sm:w-32 shrink-0"
         >
           <div class="relative mb-3">
             <img
-              src="${c.avatar_url}&s=80"
-              alt="${c.login}"
+              src="${safeAvatarUrl}"
+              alt="${safeLogin}"
               class="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover ring-2 ring-white/5 group-hover:ring-white/30 transition-all duration-300 relative z-10"
             />
             <div class="absolute inset-0 rounded-full bg-white/0 group-hover:shadow-[0_0_20px_rgba(255,255,255,0.15)] transition-all duration-300 z-0"></div>
           </div>
 
           <span class="text-xs sm:text-sm font-medium text-gray-400 group-hover:text-white transition-colors truncate w-full text-center tracking-tight">
-            ${c.login}
+            ${safeLogin}
           </span>
 
           <span class="text-[9px] sm:text-[10px] font-bold text-gray-600 uppercase tracking-widest mt-1 group-hover:text-gray-500 transition-colors">
             ${c.contributions} commits
           </span>
-        </a>`,
+        </a>`;
+        },
       )
       .join("");
 
