@@ -2,38 +2,141 @@ import { animate, stagger } from "motion";
 
 const REPO_OWNER = "ultraelectronica";
 const REPO_NAME = "Flick";
+const RELEASES_PER_PAGE = 100;
+const MAX_RELEASE_PAGES = 10;
+const WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY = "flick-website-download-clicks";
+const numberFormatter = new Intl.NumberFormat("en-US");
+
+interface GitHubReleaseAsset {
+  browser_download_url: string;
+  download_count?: number;
+  name: string;
+}
+
+interface GitHubRelease {
+  assets?: GitHubReleaseAsset[];
+  draft?: boolean;
+  prerelease?: boolean;
+  tag_name: string;
+}
+
+function formatCount(value: number): string {
+  return numberFormatter.format(value);
+}
+
+function setTextContent(id: string, value: string): void {
+  const element = document.getElementById(id);
+  if (element) {
+    element.textContent = value;
+  }
+}
+
+function getReleasePageUrl(tagName?: string): string {
+  if (!tagName) {
+    return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases`;
+  }
+
+  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${encodeURIComponent(tagName)}`;
+}
+
+function getTrackedAssets(release: GitHubRelease): GitHubReleaseAsset[] {
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const apkAssets = assets.filter((asset) => asset.name.endsWith(".apk"));
+  return apkAssets.length > 0 ? apkAssets : assets;
+}
+
+function renderWebsiteDownloadClicks(count = getWebsiteDownloadClicks()): void {
+  setTextContent("website-download-count", formatCount(count));
+}
+
+function getWebsiteDownloadClicks(): number {
+  try {
+    const rawCount = window.localStorage.getItem(WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY);
+    const parsedCount = Number.parseInt(rawCount ?? "0", 10);
+    return Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function incrementWebsiteDownloadClicks(): number {
+  const nextCount = getWebsiteDownloadClicks() + 1;
+
+  try {
+    window.localStorage.setItem(WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY, String(nextCount));
+  } catch {
+    // Ignore storage issues and keep the in-memory update for the current render.
+  }
+
+  renderWebsiteDownloadClicks(nextCount);
+  return nextCount;
+}
+
+function bindDownloadButton(downloadUrl: string): void {
+  const downloadBtn = document.getElementById("download-btn") as HTMLButtonElement | null;
+  if (!downloadBtn) return;
+
+  downloadBtn.onclick = () => {
+    incrementWebsiteDownloadClicks();
+    window.open(downloadUrl, "_blank", "noopener");
+  };
+}
+
+function renderGitHubDownloadCount(releases: GitHubRelease[]): void {
+  const totalDownloads = releases.reduce((releaseTotal, release) => {
+    return (
+      releaseTotal +
+      getTrackedAssets(release).reduce((assetTotal, asset) => {
+        return assetTotal + (typeof asset.download_count === "number" ? asset.download_count : 0);
+      }, 0)
+    );
+  }, 0);
+
+  setTextContent("github-download-count", formatCount(totalDownloads));
+}
+
+async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
+  const releases: GitHubRelease[] = [];
+
+  for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`,
+    );
+    if (!res.ok) break;
+
+    const pageReleases: unknown = await res.json();
+    if (!Array.isArray(pageReleases) || pageReleases.length === 0) break;
+
+    releases.push(...(pageReleases as GitHubRelease[]));
+    if (pageReleases.length < RELEASES_PER_PAGE) break;
+  }
+
+  return releases.filter((release) => !release.draft);
+}
 
 export async function fetchLatestRelease() {
+  renderWebsiteDownloadClicks();
+  bindDownloadButton(getReleasePageUrl());
+  setTextContent("version-tag", "Latest release on GitHub");
+
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`,
+    const releases = await fetchPublishedReleases();
+    if (releases.length === 0) return;
+
+    const latestRelease =
+      releases.find((release) => !release.prerelease) ?? releases[0];
+    const apkAsset = latestRelease.assets?.find((asset) =>
+      asset.name.endsWith(".apk"),
     );
-    if (!res.ok) return;
-    const release = await res.json();
+    const downloadUrl =
+      apkAsset?.browser_download_url ?? getReleasePageUrl(latestRelease.tag_name);
 
-    const tagName: string = release.tag_name;
-    const apkAsset = release.assets?.find((a: { name: string }) =>
-      a.name.endsWith(".apk"),
-    );
-
-    const versionTag = document.getElementById("version-tag");
-    if (versionTag) {
-      versionTag.textContent = `v${tagName} • Android APK`;
-    }
-
-    const downloadBtn = document.getElementById(
-      "download-btn",
-    ) as HTMLButtonElement | null;
-    if (downloadBtn) {
-      const downloadUrl =
-        apkAsset?.browser_download_url ??
-        `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${encodeURIComponent(tagName)}`;
-      downloadBtn.addEventListener("click", () => {
-        window.open(downloadUrl, "_blank", "noopener");
-      });
-    }
+    setTextContent("version-tag", `v${latestRelease.tag_name} • Android APK`);
+    setTextContent("github-download-count", "--");
+    renderGitHubDownloadCount(releases);
+    bindDownloadButton(downloadUrl);
   } catch {
-    // Silently fail — keep the loading placeholder
+    // Silently fail — the fallback release link and local click counter stay active.
   }
 }
 

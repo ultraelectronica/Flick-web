@@ -102,6 +102,7 @@ export function initHeroAnimation(): void {
   const heading = hero.querySelector<HTMLElement>("h1");
   const paragraph = hero.querySelector<HTMLElement>("p");
   const button = hero.querySelector<HTMLElement>("button");
+  const stats = hero.querySelector<HTMLElement>("#download-stats");
 
   if (image) {
     animate(image, { opacity: [0, 1], scale: [1.05, 1] }, { duration: 1.2, ease: EASE_OUT });
@@ -117,6 +118,10 @@ export function initHeroAnimation(): void {
 
   if (button) {
     animate(button, { opacity: [0, 1], y: [30, 0] }, { duration: 0.7, delay: 0.6, ease: EASE_OUT });
+  }
+
+  if (stats) {
+    animate(stats, { opacity: [0, 1], y: [30, 0] }, { duration: 0.7, delay: 0.75, ease: EASE_OUT });
   }
 }
 
