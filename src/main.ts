@@ -21,7 +21,7 @@ import {
 type AppRoute = "home" | "release-notes";
 
 function getCurrentRoute(): AppRoute {
-  const hash = window.location.hash.slice(1);
+  const hash = window.location.hash.replace(/^#\/?/, "");
   return hash === "release-notes" ? "release-notes" : "home";
 }
 
