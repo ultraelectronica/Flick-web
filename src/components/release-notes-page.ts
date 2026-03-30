@@ -164,5 +164,14 @@ export function ReleaseNotesPage(): string {
       </div>
     </div>
   </div>
+
+  <dialog id="image-modal" class="bg-transparent m-auto p-0 backdrop:bg-black/90 backdrop:backdrop-blur-md outline-none w-full max-w-7xl h-full max-h-screen fixed inset-0 z-50 overflow-hidden">
+    <div class="w-full h-full flex flex-col items-center justify-center p-4 md:p-12 relative pointer-events-none">
+      <img id="image-modal-img" src="" class="max-w-full max-h-full rounded-2xl object-contain shadow-2xl pointer-events-auto cursor-zoom-out" />
+      <button id="image-modal-close" class="absolute top-6 right-6 md:top-8 md:right-8 text-white/70 hover:text-white p-3 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 transition-colors pointer-events-auto backdrop-blur-xl">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+  </dialog>
 </section>`;
 }
