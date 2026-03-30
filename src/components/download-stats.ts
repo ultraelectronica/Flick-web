@@ -2,10 +2,10 @@ export function DownloadStats(): string {
   return `
 <div
   id="download-stats"
-  class="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 max-w-3xl"
+  class="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-x-8 sm:gap-y-7 max-w-3xl"
 >
-  <div class="rounded-[1.5rem] border border-white/10 bg-white/5 backdrop-blur-xl px-4 py-4 sm:px-5 sm:py-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
-    <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-3">
+  <div class="xl:border-l xl:border-white/10 xl:pl-8 xl:first:border-l-0 xl:first:pl-0">
+    <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-2">
       GitHub Release Downloads
     </p>
     <p
@@ -19,8 +19,8 @@ export function DownloadStats(): string {
     </p>
   </div>
 
-  <div class="rounded-[1.5rem] border border-white/10 bg-white/[0.04] backdrop-blur-xl px-4 py-4 sm:px-5 sm:py-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
-    <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-3">
+  <div class="xl:border-l xl:border-white/10 xl:pl-8 xl:first:border-l-0 xl:first:pl-0">
+    <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-2">
       GitHub Stars
     </p>
     <p
@@ -34,8 +34,8 @@ export function DownloadStats(): string {
     </p>
   </div>
 
-  <div class="rounded-[1.5rem] border border-white/10 bg-[#161616]/85 backdrop-blur-xl px-4 py-4 sm:px-5 sm:py-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
-    <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-3">
+  <div class="xl:border-l xl:border-white/10 xl:pl-8 xl:first:border-l-0 xl:first:pl-0">
+    <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-2">
       Website Download Clicks
     </p>
     <p
