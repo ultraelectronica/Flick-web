@@ -9,6 +9,13 @@ const LEGACY_WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY =
 const WEBSITE_DOWNLOAD_CLICK_TIMESTAMPS_STORAGE_KEY =
   "flick-website-download-click-timestamps";
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const API_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+const GITHUB_TOKEN: string | undefined = import.meta.env.VITE_GITHUB_TOKEN;
+
+function githubFetchHeaders(): HeadersInit | undefined {
+  return GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : undefined;
+}
 
 const PERIOD_DAYS = {
   "30d": 30,
@@ -95,6 +102,29 @@ let repositoryInfoCachePromise: Promise<GitHubRepositoryInfo> | null = null;
 let activeReleasePeriod: ChartPeriod = "90d";
 let releaseNotesResizeListenerBound = false;
 let releaseNotesResizeTimer = 0;
+
+function readApiCache<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const entry: { ts: number; data: T } = JSON.parse(raw);
+    if (Date.now() - entry.ts > API_CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return entry.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeApiCache<T>(key: string, data: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+  } catch {
+    // Storage full or unavailable — ignore
+  }
+}
 
 function formatCount(value: number): string {
   return numberFormatter.format(value);
@@ -1000,11 +1030,15 @@ function ensureReleaseNotesResizeListener(): void {
 async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
   if (!releaseCachePromise) {
     releaseCachePromise = (async () => {
+      const cached = readApiCache<GitHubRelease[]>("flick-api-releases");
+      if (cached) return cached;
+
       const releases: GitHubRelease[] = [];
 
       for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
         const res = await fetch(
           `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`,
+          { headers: githubFetchHeaders() },
         );
         if (!res.ok) {
           throw new Error(
@@ -1019,13 +1053,16 @@ async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
         if (pageReleases.length < RELEASES_PER_PAGE) break;
       }
 
-      return releases
+      const sorted = releases
         .filter((release) => !release.draft)
         .sort(
           (left, right) =>
             getReleasePublishedTimestamp(right) -
             getReleasePublishedTimestamp(left),
         );
+
+      writeApiCache("flick-api-releases", sorted);
+      return sorted;
     })();
   }
 
@@ -1040,8 +1077,12 @@ async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
 async function fetchRepositoryInfo(): Promise<GitHubRepositoryInfo> {
   if (!repositoryInfoCachePromise) {
     repositoryInfoCachePromise = (async () => {
+      const cached = readApiCache<GitHubRepositoryInfo>("flick-api-repo");
+      if (cached) return cached;
+
       const res = await fetch(
         `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`,
+        { headers: githubFetchHeaders() },
       );
       if (!res.ok) {
         throw new Error(
@@ -1050,7 +1091,9 @@ async function fetchRepositoryInfo(): Promise<GitHubRepositoryInfo> {
       }
 
       const repositoryInfo: unknown = await res.json();
-      return repositoryInfo as GitHubRepositoryInfo;
+      const info = repositoryInfo as GitHubRepositoryInfo;
+      writeApiCache("flick-api-repo", info);
+      return info;
     })();
   }
 
@@ -1110,7 +1153,12 @@ export async function initReleaseNotesPage() {
       fetchPublishedReleases(),
       fetchRepositoryInfo().catch(() => null),
     ]);
-    renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+
+    // Defer chart rendering so container dimensions are fully resolved after layout.
+    requestAnimationFrame(() => {
+      renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+    });
+
     renderRepositoryStars(repositoryInfo?.stargazers_count);
     renderReleaseNotesList(releases);
 
@@ -1147,12 +1195,26 @@ export async function initReleaseNotesPage() {
 
 export async function fetchContributors() {
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
-    );
-    if (!res.ok) return;
-    const contributors = await res.json();
-    if (!Array.isArray(contributors)) return;
+    let contributors = readApiCache<
+      Array<{
+        login: string;
+        avatar_url: string;
+        html_url: string;
+        contributions: number;
+      }>
+    >("flick-api-contributors");
+
+    if (!contributors) {
+      const res = await fetch(
+        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
+        { headers: githubFetchHeaders() },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+      contributors = data;
+      writeApiCache("flick-api-contributors", contributors);
+    }
 
     const grid = document.getElementById("contributors-grid");
     if (!grid) return;
@@ -1212,14 +1274,20 @@ export async function fetchContributors() {
 
 export async function fetchLatestCommit() {
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?per_page=1`,
-    );
-    if (!res.ok) return;
-    const commits = await res.json();
-    if (!Array.isArray(commits) || commits.length === 0) return;
+    let shortSha = readApiCache<string>("flick-api-commit");
 
-    const shortSha: string = commits[0].sha.substring(0, 7);
+    if (!shortSha) {
+      const res = await fetch(
+        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?per_page=1`,
+        { headers: githubFetchHeaders() },
+      );
+      if (!res.ok) return;
+      const commits = await res.json();
+      if (!Array.isArray(commits) || commits.length === 0) return;
+
+      shortSha = commits[0].sha.substring(0, 7);
+      writeApiCache("flick-api-commit", shortSha);
+    }
 
     const navVersionTag = document.getElementById("nav-version-tag");
     if (navVersionTag) {
