@@ -1,6 +1,17 @@
 import flicklogo from "../assets/flicklogo_transparent.png";
 
-export function Footer(): string {
+export function Footer(currentRoute: "home" | "release-notes" = "home"): string {
+  const secondaryAction =
+    currentRoute === "release-notes"
+      ? `
+          <a href="#/" class="inline-flex justify-center items-center space-x-3 bg-transparent text-white border border-white/20 px-8 py-4 rounded-xl font-bold hover:bg-white/5 transition-all active:scale-95">
+            <span>Back Home</span>
+          </a>`
+      : `
+          <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="inline-flex justify-center items-center space-x-3 bg-transparent text-white border border-white/20 px-8 py-4 rounded-xl font-bold hover:bg-white/5 transition-all active:scale-95">
+            <span>Back to Top</span>
+          </button>`;
+
   return `
 <section class="bg-[#101010] text-white pt-24 pb-12 relative z-20">
   <div class="max-w-7xl mx-auto px-6 lg:px-16">
@@ -22,13 +33,11 @@ export function Footer(): string {
         </p>
         
         <div class="flex flex-col sm:flex-row gap-4 justify-center w-full sm:w-auto">
-          <a href="https://github.com/ultraelectronica/Flick" target="_blank" class="inline-flex justify-center items-center space-x-3 bg-white text-black px-8 py-4 rounded-xl font-bold hover:bg-gray-200 transition-all active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)]">
+          <a href="https://github.com/ultraelectronica/Flick" target="_blank" rel="noopener" class="inline-flex justify-center items-center space-x-3 bg-white text-black px-8 py-4 rounded-xl font-bold hover:bg-gray-200 transition-all active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)]">
             <span>View Source on GitHub</span>
           </a>
           
-          <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="inline-flex justify-center items-center space-x-3 bg-transparent text-white border border-white/20 px-8 py-4 rounded-xl font-bold hover:bg-white/5 transition-all active:scale-95">
-            <span>Back to Top</span>
-          </button>
+          ${secondaryAction}
         </div>
       </div>
     </div>
@@ -43,9 +52,10 @@ export function Footer(): string {
       </div>
 
       <div class="flex flex-wrap justify-center gap-x-8 gap-y-3 text-sm font-medium text-gray-500">
-        <a href="https://github.com/ultraelectronica/Flick/releases" target="_blank" class="hover:text-white transition-colors">Releases</a>
-        <a href="https://github.com/ultraelectronica/Flick/issues" target="_blank" class="hover:text-white transition-colors">Issue Tracker</a>
-        <a href="https://github.com/ultraelectronica/Flick/pulls" target="_blank" class="hover:text-white transition-colors">Contribute</a>
+        <a href="#/release-notes" class="hover:text-white transition-colors">Release Notes</a>
+        <a href="https://github.com/ultraelectronica/Flick/releases" target="_blank" rel="noopener" class="hover:text-white transition-colors">GitHub Releases</a>
+        <a href="https://github.com/ultraelectronica/Flick/issues" target="_blank" rel="noopener" class="hover:text-white transition-colors">Issue Tracker</a>
+        <a href="https://github.com/ultraelectronica/Flick/pulls" target="_blank" rel="noopener" class="hover:text-white transition-colors">Contribute</a>
       </div>
 
     </footer>
