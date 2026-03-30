@@ -1,4 +1,16 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+declare const process: { env: Record<string, string | undefined> };
+
+interface VercelRequest {
+  query: Record<string, string | string[] | undefined>;
+  method?: string;
+}
+
+interface VercelResponse {
+  setHeader(name: string, value: string): void;
+  status(code: number): VercelResponse;
+  json(body: unknown): VercelResponse;
+  send(body: string): VercelResponse;
+}
 
 const ALLOWED_PATHS = [
   /^\/repos\/[^/]+\/[^/]+\/releases$/,
