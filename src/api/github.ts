@@ -11,10 +11,10 @@ const WEBSITE_DOWNLOAD_CLICK_TIMESTAMPS_STORAGE_KEY =
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const API_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-const GITHUB_TOKEN: string | undefined = import.meta.env.VITE_GITHUB_TOKEN;
-
-function githubFetchHeaders(): HeadersInit | undefined {
-  return GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : undefined;
+async function githubApiFetch(path: string, qs?: string): Promise<Response> {
+  const params = new URLSearchParams({ path });
+  if (qs) params.set("qs", qs);
+  return fetch(`/api/github-proxy?${params.toString()}`);
 }
 
 const PERIOD_DAYS = {
@@ -1281,9 +1281,9 @@ async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
       const releases: GitHubRelease[] = [];
 
       for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
-        const res = await fetch(
-          `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`,
-          { headers: githubFetchHeaders() },
+        const res = await githubApiFetch(
+          `/repos/${REPO_OWNER}/${REPO_NAME}/releases`,
+          `per_page=${RELEASES_PER_PAGE}&page=${page}`,
         );
         if (!res.ok) {
           throw new Error(
@@ -1325,10 +1325,7 @@ async function fetchRepositoryInfo(): Promise<GitHubRepositoryInfo> {
       const cached = readApiCache<GitHubRepositoryInfo>("flick-api-repo");
       if (cached) return cached;
 
-      const res = await fetch(
-        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`,
-        { headers: githubFetchHeaders() },
-      );
+      const res = await githubApiFetch(`/repos/${REPO_OWNER}/${REPO_NAME}`);
       if (!res.ok) {
         throw new Error(
           `GitHub repository request failed with status ${res.status}`,
@@ -1450,9 +1447,8 @@ export async function fetchContributors() {
     >("flick-api-contributors");
 
     if (!contributors) {
-      const res = await fetch(
-        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
-        { headers: githubFetchHeaders() },
+      const res = await githubApiFetch(
+        `/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -1522,9 +1518,9 @@ export async function fetchLatestCommit() {
     let shortSha = readApiCache<string>("flick-api-commit");
 
     if (!shortSha) {
-      const res = await fetch(
-        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?per_page=1`,
-        { headers: githubFetchHeaders() },
+      const res = await githubApiFetch(
+        `/repos/${REPO_OWNER}/${REPO_NAME}/commits`,
+        `per_page=1`,
       );
       if (!res.ok) return;
       const commits = await res.json();
