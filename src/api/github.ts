@@ -71,6 +71,18 @@ interface TimelineBarPoint {
   value: number;
 }
 
+interface ReleaseBodyImage {
+  alt: string;
+  height?: number;
+  src: string;
+  width?: number;
+}
+
+interface ReleaseBodyImageParseResult {
+  images: ReleaseBodyImage[];
+  remainingText: string;
+}
+
 interface TimelineChartLayout {
   chartHeight: number;
   chartWidth: number;
@@ -609,6 +621,189 @@ function renderGitHubDownloadCount(releases: GitHubRelease[]): void {
   setTextContent("release-total-downloads", formatCount(totalDownloads));
 }
 
+function getSafeExternalUrl(rawValue: string): string | null {
+  try {
+    const parsedUrl = new URL(rawValue.trim());
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return null;
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function parsePositiveInteger(rawValue?: string): number | undefined {
+  if (!rawValue) return undefined;
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return undefined;
+  }
+
+  return parsedValue;
+}
+
+function parseHtmlTagAttributes(tagMarkup: string): Map<string, string> {
+  const attributes = new Map<string, string>();
+  const attributePattern = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+
+  for (const match of tagMarkup.matchAll(attributePattern)) {
+    const attributeName = match[1]?.toLowerCase();
+    const attributeValue = match[2] ?? match[3] ?? match[4] ?? "";
+    if (!attributeName) continue;
+    attributes.set(attributeName, attributeValue);
+  }
+
+  return attributes;
+}
+
+function parseHtmlImageTag(tagMarkup: string): ReleaseBodyImage | null {
+  const attributes = parseHtmlTagAttributes(tagMarkup);
+  const src = getSafeExternalUrl(attributes.get("src") ?? "");
+  if (!src) return null;
+
+  return {
+    alt: attributes.get("alt")?.trim() || "Release image",
+    height: parsePositiveInteger(attributes.get("height")),
+    src,
+    width: parsePositiveInteger(attributes.get("width")),
+  };
+}
+
+function parseMarkdownImageToken(markup: string): ReleaseBodyImage | null {
+  const match = markup.match(/^!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"([^"]*)")?\)$/);
+  if (!match) return null;
+
+  const src = getSafeExternalUrl(match[2]);
+  if (!src) return null;
+
+  return {
+    alt: match[1]?.trim() || match[3]?.trim() || "Release image",
+    src,
+  };
+}
+
+function looksLikeImageUrl(rawUrl: string): boolean {
+  try {
+    const parsedUrl = new URL(rawUrl);
+    const pathname = parsedUrl.pathname.toLowerCase();
+
+    return (
+      /\.(apng|avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(pathname) ||
+      pathname.includes("/user-attachments/assets/") ||
+      parsedUrl.hostname.endsWith("githubusercontent.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseStandaloneImageUrl(rawToken: string): ReleaseBodyImage | null {
+  const trimmedToken = rawToken.trim().replace(/^<|>$/g, "");
+  const src = getSafeExternalUrl(trimmedToken);
+  if (!src || !looksLikeImageUrl(src)) return null;
+
+  return {
+    alt: "Release image",
+    src,
+  };
+}
+
+function normalizeInlineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function extractHtmlImagesFromLine(line: string): ReleaseBodyImageParseResult | null {
+  const matches = [...line.matchAll(/<img\b[^>]*\/?>/gi)];
+  if (matches.length === 0) return null;
+
+  const images = matches
+    .map((match) => parseHtmlImageTag(match[0]))
+    .filter((image): image is ReleaseBodyImage => image !== null);
+
+  if (images.length === 0) return null;
+
+  return {
+    images,
+    remainingText: normalizeInlineText(line.replace(/<img\b[^>]*\/?>/gi, " ")),
+  };
+}
+
+function extractMarkdownImagesFromLine(line: string): ReleaseBodyImageParseResult | null {
+  const tokenPattern = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const matches = [...line.matchAll(tokenPattern)];
+  if (matches.length === 0) return null;
+
+  const images = matches
+    .map((match) => parseMarkdownImageToken(match[0]))
+    .filter((image): image is ReleaseBodyImage => image !== null);
+
+  if (images.length === 0) return null;
+
+  return {
+    images,
+    remainingText: normalizeInlineText(line.replace(tokenPattern, " ")),
+  };
+}
+
+function extractStandaloneImageUrlsFromLine(line: string): ReleaseBodyImage[] | null {
+  const tokens = line
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) return null;
+
+  const images = tokens
+    .map((token) => parseStandaloneImageUrl(token))
+    .filter((image): image is ReleaseBodyImage => image !== null);
+
+  return images.length === tokens.length ? images : null;
+}
+
+function renderReleaseImageGallery(images: ReleaseBodyImage[]): string {
+  const galleryGridClass =
+    images.length === 1
+      ? "grid-cols-1 max-w-md"
+      : images.length === 2
+        ? "grid-cols-1 sm:grid-cols-2"
+        : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3";
+
+  return `
+    <div class="grid ${galleryGridClass} gap-3">
+      ${images
+        .map((image) => {
+          const dimensionAttributes = [
+            image.width ? `width="${image.width}"` : "",
+            image.height ? `height="${image.height}"` : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return `
+            <a
+              href="${escapeHtml(image.src)}"
+              target="_blank"
+              rel="noopener"
+              class="group block rounded-[1.35rem] border border-white/10 bg-black/25 p-2 transition-colors hover:border-white/20"
+            >
+              <img
+                src="${escapeHtml(image.src)}"
+                alt="${escapeHtml(image.alt)}"
+                ${dimensionAttributes}
+                loading="lazy"
+                decoding="async"
+                class="w-full h-auto rounded-[1rem] bg-[#0d0d0d]"
+              />
+            </a>`;
+        })
+        .join("")}
+    </div>`;
+}
+
 function formatInlineMarkdown(value: string): string {
   return escapeHtml(value)
     .replace(
@@ -635,6 +830,7 @@ function renderReleaseBody(markdown?: string): string {
   const blocks: string[] = [];
   let paragraphLines: string[] = [];
   let listItems: string[] = [];
+  let galleryImages: ReleaseBodyImage[] = [];
 
   const flushParagraph = () => {
     if (paragraphLines.length === 0) return;
@@ -644,6 +840,13 @@ function renderReleaseBody(markdown?: string): string {
         ${formatInlineMarkdown(paragraphLines.join(" "))}
       </p>`);
     paragraphLines = [];
+  };
+
+  const flushGallery = () => {
+    if (galleryImages.length === 0) return;
+
+    blocks.push(renderReleaseImageGallery(galleryImages));
+    galleryImages = [];
   };
 
   const flushList = () => {
@@ -662,8 +865,49 @@ function renderReleaseBody(markdown?: string): string {
     if (!line) {
       flushParagraph();
       flushList();
+      flushGallery();
       return;
     }
+
+    const htmlImages = extractHtmlImagesFromLine(line);
+    if (htmlImages) {
+      flushParagraph();
+      flushList();
+      if (htmlImages.remainingText) {
+        flushGallery();
+        blocks.push(`
+          <p class="text-gray-300 leading-relaxed">
+            ${formatInlineMarkdown(htmlImages.remainingText)}
+          </p>`);
+      }
+      galleryImages.push(...htmlImages.images);
+      return;
+    }
+
+    const markdownImages = extractMarkdownImagesFromLine(line);
+    if (markdownImages) {
+      flushParagraph();
+      flushList();
+      if (markdownImages.remainingText) {
+        flushGallery();
+        blocks.push(`
+          <p class="text-gray-300 leading-relaxed">
+            ${formatInlineMarkdown(markdownImages.remainingText)}
+          </p>`);
+      }
+      galleryImages.push(...markdownImages.images);
+      return;
+    }
+
+    const standaloneImageUrls = extractStandaloneImageUrlsFromLine(line);
+    if (standaloneImageUrls) {
+      flushParagraph();
+      flushList();
+      galleryImages.push(...standaloneImageUrls);
+      return;
+    }
+
+    flushGallery();
 
     const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
     if (headingMatch) {
@@ -697,6 +941,7 @@ function renderReleaseBody(markdown?: string): string {
 
   flushParagraph();
   flushList();
+  flushGallery();
 
   return `<div class="space-y-4">${blocks.join("")}</div>`;
 }
