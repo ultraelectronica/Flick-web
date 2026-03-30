@@ -60,6 +60,10 @@ interface GitHubRelease {
   tag_name: string;
 }
 
+interface GitHubRepositoryInfo {
+  stargazers_count?: number;
+}
+
 interface TimelineBarPoint {
   detail: string;
   shortLabel: string;
@@ -67,6 +71,7 @@ interface TimelineBarPoint {
 }
 
 let releaseCachePromise: Promise<GitHubRelease[]> | null = null;
+let repositoryInfoCachePromise: Promise<GitHubRepositoryInfo> | null = null;
 let activeReleasePeriod: ChartPeriod = "90d";
 
 function formatCount(value: number): string {
@@ -94,6 +99,14 @@ function setInnerHtml(id: string, value: string): void {
   if (element) {
     element.innerHTML = value;
   }
+}
+
+function renderRepositoryStars(starCount?: number): void {
+  const formattedCount =
+    typeof starCount === "number" ? formatCount(starCount) : "--";
+
+  setTextContent("repo-star-count", formattedCount);
+  setTextContent("release-repo-star-count", formattedCount);
 }
 
 function getReleasePageUrl(tagName?: string): string {
@@ -788,6 +801,29 @@ async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
   }
 }
 
+async function fetchRepositoryInfo(): Promise<GitHubRepositoryInfo> {
+  if (!repositoryInfoCachePromise) {
+    repositoryInfoCachePromise = (async () => {
+      const res = await fetch(
+        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`,
+      );
+      if (!res.ok) {
+        throw new Error(`GitHub repository request failed with status ${res.status}`);
+      }
+
+      const repositoryInfo: unknown = await res.json();
+      return repositoryInfo as GitHubRepositoryInfo;
+    })();
+  }
+
+  try {
+    return await repositoryInfoCachePromise;
+  } catch (error) {
+    repositoryInfoCachePromise = null;
+    throw error;
+  }
+}
+
 function incrementWebsiteDownloadClicks(): number {
   const timestamps = getStoredWebsiteDownloadClickTimestamps();
   timestamps.push(Date.now());
@@ -802,17 +838,22 @@ function incrementWebsiteDownloadClicks(): number {
 
 export async function fetchLatestRelease() {
   renderWebsiteDownloadClicks();
+  renderRepositoryStars();
   bindDownloadButton(getReleasePageUrl());
   setTextContent("version-tag", "Latest release on GitHub");
 
   try {
-    const releases = await fetchPublishedReleases();
+    const [releases, repositoryInfo] = await Promise.all([
+      fetchPublishedReleases(),
+      fetchRepositoryInfo().catch(() => null),
+    ]);
     if (releases.length === 0) return;
 
     const latestRelease = releases.find((release) => !release.prerelease) ?? releases[0];
 
     setTextContent("version-tag", `v${latestRelease.tag_name} • Android APK`);
     renderGitHubDownloadCount(releases);
+    renderRepositoryStars(repositoryInfo?.stargazers_count);
     bindDownloadButton(getReleaseDownloadUrl(latestRelease));
   } catch {
     // Silently fail — the fallback release link and local click counter stay active.
@@ -821,11 +862,16 @@ export async function fetchLatestRelease() {
 
 export async function initReleaseNotesPage() {
   renderWebsiteDownloadClicks();
+  renderRepositoryStars();
   updateReleasePeriodButtons(activeReleasePeriod);
 
   try {
-    const releases = await fetchPublishedReleases();
+    const [releases, repositoryInfo] = await Promise.all([
+      fetchPublishedReleases(),
+      fetchRepositoryInfo().catch(() => null),
+    ]);
     renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+    renderRepositoryStars(repositoryInfo?.stargazers_count);
     renderReleaseNotesList(releases);
 
     const periodButtons = document.querySelectorAll<HTMLButtonElement>(

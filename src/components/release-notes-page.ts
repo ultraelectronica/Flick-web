@@ -35,7 +35,7 @@ export function ReleaseNotesPage(): string {
     </div>
 
     <div
-      class="mt-12 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"
+      class="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4"
       data-animate-stagger="[data-animate-child]"
       data-animate-stagger-delay="0.08"
     >
@@ -43,6 +43,12 @@ export function ReleaseNotesPage(): string {
         <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500">GitHub Downloads</p>
         <p id="release-total-downloads" class="mt-4 text-3xl font-bold tracking-tight text-white">--</p>
         <p class="mt-2 text-sm text-gray-400 leading-relaxed">Total APK downloads across all published GitHub releases.</p>
+      </div>
+
+      <div data-animate-child class="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-xl p-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
+        <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500">Repo Stars</p>
+        <p id="release-repo-star-count" class="mt-4 text-3xl font-bold tracking-tight text-white">--</p>
+        <p class="mt-2 text-sm text-gray-400 leading-relaxed">Current stargazer count from the GitHub repository.</p>
       </div>
 
       <div data-animate-child class="rounded-[1.75rem] border border-white/10 bg-[#151515]/90 backdrop-blur-xl p-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
