@@ -10,6 +10,8 @@ const WEBSITE_DOWNLOAD_CLICK_TIMESTAMPS_STORAGE_KEY =
   "flick-website-download-click-timestamps";
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const API_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CONTRIBUTOR_STATS_RETRY_MS = 700;
+const DISCLOSURE_EASE = [0.22, 1, 0.36, 1] as const;
 
 async function githubApiFetch(path: string, qs?: string): Promise<Response> {
   const params = new URLSearchParams({ path });
@@ -73,6 +75,26 @@ interface GitHubRepositoryInfo {
   stargazers_count?: number;
 }
 
+interface GitHubContributor {
+  avatar_url: string;
+  contributions: number;
+  html_url: string;
+  login: string;
+}
+
+interface GitHubContributorWeek {
+  c?: number;
+  w?: number;
+}
+
+interface GitHubContributorStats {
+  author?: {
+    login?: string | null;
+  } | null;
+  total?: number;
+  weeks?: GitHubContributorWeek[];
+}
+
 interface TimelineBarPoint {
   detail: string;
   shortLabel: string;
@@ -111,6 +133,9 @@ interface TimelineChartLayout {
 
 let releaseCachePromise: Promise<GitHubRelease[]> | null = null;
 let repositoryInfoCachePromise: Promise<GitHubRepositoryInfo> | null = null;
+let contributorCachePromise: Promise<GitHubContributor[]> | null = null;
+let contributorStatsCachePromise: Promise<GitHubContributorStats[]> | null =
+  null;
 let activeReleasePeriod: ChartPeriod = "90d";
 let releaseNotesResizeListenerBound = false;
 let releaseNotesResizeTimer = 0;
@@ -136,6 +161,12 @@ function writeApiCache<T>(key: string, data: T): void {
   } catch {
     // Storage full or unavailable — ignore
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function formatCount(value: number): string {
@@ -193,6 +224,12 @@ function renderRepositoryStars(starCount?: number): void {
 
   setTextContent("repo-star-count", formattedCount);
   setTextContent("release-repo-star-count", formattedCount);
+}
+
+function renderContributorCount(count?: number): void {
+  const formattedCount = typeof count === "number" ? formatCount(count) : "--";
+  setTextContent("contributor-count", formattedCount);
+  setTextContent("release-contributor-total", formattedCount);
 }
 
 function getReleasePageUrl(tagName?: string): string {
@@ -311,7 +348,6 @@ function getWebsiteDownloadClickTotal(): number {
 function renderWebsiteDownloadClicks(
   count = getWebsiteDownloadClickTotal(),
 ): void {
-  setTextContent("website-download-count", formatCount(count));
   setTextContent("release-website-total", formatCount(count));
 }
 
@@ -487,6 +523,79 @@ function buildGitHubDownloadTimeline(
         value: getReleaseDownloadTotal(release),
       };
     });
+}
+
+function getContributorFirstContributionTimestamps(
+  contributorStats: GitHubContributorStats[],
+): number[] {
+  return contributorStats
+    .map((stat) => {
+      const firstActiveWeek = stat.weeks?.find((week) => {
+        return (
+          typeof week.w === "number" &&
+          typeof week.c === "number" &&
+          week.c > 0
+        );
+      });
+
+      if (!firstActiveWeek || typeof firstActiveWeek.w !== "number") {
+        return 0;
+      }
+
+      return firstActiveWeek.w * 1000;
+    })
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp > 0)
+    .sort((left, right) => left - right);
+}
+
+function buildContributorTimeline(
+  contributorStats: GitHubContributorStats[],
+  period: ChartPeriod,
+): TimelineBarPoint[] {
+  const timestamps = getContributorFirstContributionTimestamps(contributorStats);
+  if (timestamps.length === 0) return [];
+
+  const resolution = getBucketResolution(period);
+  const now = Date.now();
+  const rawStart =
+    period === "all" ? timestamps[0] : getChartPeriodStart(period, now);
+  const start = getBucketStart(rawStart, resolution);
+  const end = getBucketStart(now, resolution);
+  const countsByBucket = new Map<number, number>();
+
+  timestamps
+    .filter((timestamp) => timestamp <= now)
+    .forEach((timestamp) => {
+      const bucketStart = getBucketStart(timestamp, resolution);
+      countsByBucket.set(
+        bucketStart,
+        (countsByBucket.get(bucketStart) ?? 0) + 1,
+      );
+    });
+
+  let runningTotal = timestamps.filter((timestamp) => timestamp < start).length;
+  const points: TimelineBarPoint[] = [];
+
+  for (
+    let cursor = start;
+    cursor <= end;
+    cursor = addBucketStep(cursor, resolution)
+  ) {
+    runningTotal += countsByBucket.get(cursor) ?? 0;
+    points.push({
+      detail: `${formatBucketDetail(cursor, resolution)} • ${formatCount(
+        runningTotal,
+      )} contributors total`,
+      shortLabel: formatBucketShortLabel(cursor, resolution),
+      value: runningTotal,
+    });
+  }
+
+  return points;
+}
+
+function getTimelineFinalValue(points: TimelineBarPoint[]): number {
+  return points.length > 0 ? points[points.length - 1].value : 0;
 }
 
 function isMobileChartViewport(): boolean {
@@ -1092,7 +1201,7 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
   );
 
   list.innerHTML = sortedReleases
-    .map((release) => {
+    .map((release, index) => {
       const publishedTimestamp = getReleasePublishedTimestamp(release);
       const publishedLabel =
         publishedTimestamp > 0
@@ -1105,6 +1214,8 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
         release.html_url && isGitHubUrl(release.html_url)
           ? release.html_url
           : getReleasePageUrl(release.tag_name);
+      const notesPanelId = `release-notes-panel-${index}`;
+      const notesSummaryId = `release-notes-summary-${index}`;
 
       return `
         <article class="rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#191919] to-[#111111] p-6 md:p-8 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
@@ -1151,15 +1262,27 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
             </div>
           </div>
 
-          <details class="group mt-6 border-t border-white/10 pt-6">
-            <summary class="flex cursor-pointer items-center justify-between font-semibold text-gray-300 hover:text-white transition-colors list-none select-none [&::-webkit-details-marker]:hidden">
+          <details class="release-notes-disclosure group mt-6 border-t border-white/10 pt-6">
+            <summary
+              id="${notesSummaryId}"
+              aria-controls="${notesPanelId}"
+              aria-expanded="false"
+              class="release-notes-summary flex cursor-pointer items-center justify-between font-semibold text-gray-300 hover:text-white transition-colors list-none select-none [&::-webkit-details-marker]:hidden"
+            >
               <span class="text-[13px] tracking-[0.1em] uppercase">Release Notes</span>
-              <span class="transition-transform duration-300 group-open:rotate-180 bg-white/5 border border-white/10 p-1.5 rounded-full">
+              <span class="release-notes-summary-icon transition-transform duration-300 group-open:rotate-180 bg-white/5 border border-white/10 p-1.5 rounded-full">
                 <svg fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="18"><path d="M6 9l6 6 6-6"></path></svg>
               </span>
             </summary>
-            <div class="mt-6 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-              ${renderReleaseBody(release.body)}
+            <div
+              id="${notesPanelId}"
+              role="region"
+              aria-labelledby="${notesSummaryId}"
+              class="release-notes-panel overflow-hidden"
+            >
+              <div class="release-notes-panel-inner mt-6">
+                ${renderReleaseBody(release.body)}
+              </div>
             </div>
           </details>
         </article>`;
@@ -1167,6 +1290,131 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
     .join("");
 
   bindTrackedDownloadLinks();
+  bindReleaseNotesDropdowns();
+}
+
+function bindReleaseNotesDropdowns(): void {
+  const disclosures = document.querySelectorAll<HTMLDetailsElement>(
+    ".release-notes-disclosure",
+  );
+
+  disclosures.forEach((disclosure) => {
+    if (disclosure.dataset.bound === "true") return;
+
+    const summary = disclosure.querySelector<HTMLElement>(
+      ".release-notes-summary",
+    );
+    const panel = disclosure.querySelector<HTMLElement>(".release-notes-panel");
+    const panelInner = disclosure.querySelector<HTMLElement>(
+      ".release-notes-panel-inner",
+    );
+    if (!summary || !panel || !panelInner) return;
+
+    disclosure.dataset.bound = "true";
+
+    summary.addEventListener("click", (event) => {
+      event.preventDefault();
+
+      if (disclosure.dataset.animating === "true") return;
+
+      if (disclosure.open) {
+        void collapseReleaseNotesDropdown(disclosure, summary, panel, panelInner);
+        return;
+      }
+
+      void expandReleaseNotesDropdown(disclosure, summary, panel, panelInner);
+    });
+  });
+}
+
+async function expandReleaseNotesDropdown(
+  disclosure: HTMLDetailsElement,
+  summary: HTMLElement,
+  panel: HTMLElement,
+  panelInner: HTMLElement,
+): Promise<void> {
+  disclosure.dataset.animating = "true";
+  summary.setAttribute("aria-expanded", "true");
+  disclosure.open = true;
+
+  panel.style.overflow = "hidden";
+  panel.style.height = "0px";
+  panelInner.style.opacity = "0";
+  panelInner.style.transform = "translateY(-12px)";
+
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
+  const targetHeight = `${panel.scrollHeight}px`;
+
+  await Promise.allSettled([
+    animate(
+      panel,
+      { height: ["0px", targetHeight] },
+      { duration: 0.32, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      panelInner,
+      { opacity: [0, 1], y: [-12, 0] },
+      { duration: 0.28, delay: 0.04, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      summary,
+      { scale: [1, 0.985, 1] },
+      { duration: 0.22, ease: DISCLOSURE_EASE },
+    ).finished,
+  ]);
+
+  panel.style.height = "";
+  panel.style.overflow = "";
+  panelInner.style.opacity = "";
+  panelInner.style.transform = "";
+  delete disclosure.dataset.animating;
+}
+
+async function collapseReleaseNotesDropdown(
+  disclosure: HTMLDetailsElement,
+  summary: HTMLElement,
+  panel: HTMLElement,
+  panelInner: HTMLElement,
+): Promise<void> {
+  disclosure.dataset.animating = "true";
+  summary.setAttribute("aria-expanded", "false");
+
+  panel.style.overflow = "hidden";
+  panel.style.height = `${panel.getBoundingClientRect().height}px`;
+
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
+  const startHeight = `${panel.getBoundingClientRect().height}px`;
+
+  await Promise.allSettled([
+    animate(
+      panel,
+      { height: [startHeight, "0px"] },
+      { duration: 0.28, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      panelInner,
+      { opacity: [1, 0], y: [0, -12] },
+      { duration: 0.2, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      summary,
+      { scale: [1, 0.99, 1] },
+      { duration: 0.18, ease: DISCLOSURE_EASE },
+    ).finished,
+  ]);
+
+  disclosure.open = false;
+  panel.style.height = "";
+  panel.style.overflow = "";
+  panelInner.style.opacity = "";
+  panelInner.style.transform = "";
+  delete disclosure.dataset.animating;
 }
 
 function updateReleasePeriodButtons(period: ChartPeriod): void {
@@ -1192,6 +1440,8 @@ function updateReleasePeriodButtons(period: ChartPeriod): void {
 function renderReleaseNotesAnalytics(
   releases: GitHubRelease[],
   period: ChartPeriod,
+  contributorCount?: number,
+  contributorStats?: GitHubContributorStats[] | null,
 ): void {
   activeReleasePeriod = period;
 
@@ -1200,14 +1450,29 @@ function renderReleaseNotesAnalytics(
     return sum + getReleaseDownloadTotal(release);
   }, 0);
   const releaseTimeline = buildGitHubDownloadTimeline(releases, period);
-  const websiteTimeline = buildWebsiteDownloadTimeline(period);
-  const websiteTimelineTotal = websiteTimeline.reduce((sum, point) => {
-    return sum + point.value;
-  }, 0);
-  const websiteResolution = getBucketResolution(period);
+  const contributorTimeline =
+    contributorStats && contributorStats.length > 0
+      ? buildContributorTimeline(contributorStats, period)
+      : [];
+  const contributorChartPoints =
+    contributorTimeline.length > 0
+      ? contributorTimeline
+      : typeof contributorCount === "number"
+        ? [
+            {
+              detail: `Current total contributors: ${formatCount(
+                contributorCount,
+              )}`,
+              shortLabel: "Now",
+              value: contributorCount,
+            },
+          ]
+        : [];
+  const contributorTimelineTotal = getTimelineFinalValue(contributorChartPoints);
+  const contributorResolution = getBucketResolution(period);
 
   renderGitHubDownloadCount(releases);
-  renderWebsiteDownloadClicks();
+  renderContributorCount(contributorCount);
 
   setTextContent(
     "release-period-downloads",
@@ -1238,10 +1503,14 @@ function renderReleaseNotesAnalytics(
   );
 
   setTextContent(
-    "website-downloads-caption",
-    websiteTimeline.length > 0
-      ? `${formatCount(websiteTimelineTotal)} clicks grouped by ${websiteResolution} in ${getPeriodRangeLabel(period)}.`
-      : `No local website click history exists in ${getPeriodRangeLabel(period)}.`,
+    "contributors-caption",
+    contributorTimeline.length > 0
+      ? `${formatCount(
+          contributorTimelineTotal,
+        )} cumulative contributors grouped by ${contributorResolution} in ${getPeriodRangeLabel(period)}.`
+      : typeof contributorCount === "number"
+        ? "Showing the current repository total because detailed contributor history is unavailable right now."
+        : "Contributor history could not be loaded from GitHub.",
   );
 
   renderTimelineChart("release-downloads-chart", releaseTimeline, {
@@ -1258,21 +1527,24 @@ function renderReleaseNotesAnalytics(
     getTimelineRangeLabel(releaseTimeline),
   );
 
-  renderTimelineChart("website-downloads-chart", websiteTimeline, {
-    accentColor: "#7DD3FC",
-    emptyLabel:
-      period === "all"
-        ? "Website clicks start appearing here once downloads are triggered from this browser."
-        : `No website click events were recorded in ${getPeriodRangeLabel(period)}.`,
-    unitLabel: "clicks",
+  renderTimelineChart("contributors-chart", contributorChartPoints, {
+    accentColor: "#34D399",
+    emptyLabel: "Contributor history could not be loaded from GitHub.",
+    unitLabel: "contributors",
   });
   setTextContent(
-    "website-downloads-total",
-    `${formatCount(websiteTimelineTotal)} clicks`,
+    "contributors-total",
+    contributorChartPoints.length > 0
+      ? `${formatCount(contributorTimelineTotal)} contributors`
+      : "--",
   );
   setTextContent(
-    "website-downloads-range",
-    getTimelineRangeLabel(websiteTimeline),
+    "contributors-range",
+    contributorTimeline.length > 0
+      ? getTimelineRangeLabel(contributorTimeline)
+      : contributorChartPoints.length > 0
+        ? "Current total"
+        : "No data",
   );
 
   updateReleasePeriodButtons(period);
@@ -1282,8 +1554,17 @@ async function refreshReleaseNotesAnalyticsIfVisible(): Promise<void> {
   if (!document.getElementById("release-notes-view")) return;
 
   try {
-    const releases = await fetchPublishedReleases();
-    renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+    const [releases, contributors, contributorStats] = await Promise.all([
+      fetchPublishedReleases(),
+      fetchContributorList().catch(() => null),
+      fetchContributorStats().catch(() => null),
+    ]);
+    renderReleaseNotesAnalytics(
+      releases,
+      activeReleasePeriod,
+      contributors?.length,
+      contributorStats,
+    );
   } catch {
     // Leave the existing UI intact if release history cannot be refreshed.
   }
@@ -1471,14 +1752,9 @@ export async function initReleaseNotesPage() {
 
 export async function fetchContributors() {
   try {
-    let contributors = readApiCache<
-      Array<{
-        login: string;
-        avatar_url: string;
-        html_url: string;
-        contributions: number;
-      }>
-    >("flick-api-contributors");
+    let contributors = readApiCache<GitHubContributor[]>(
+      "flick-api-contributors",
+    );
 
     if (!contributors) {
       const res = await githubApiFetch(
@@ -1487,28 +1763,24 @@ export async function fetchContributors() {
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data)) return;
-      contributors = data;
+      contributors = data as GitHubContributor[];
       writeApiCache("flick-api-contributors", contributors);
     }
+
+    renderContributorCount(contributors.length);
 
     const grid = document.getElementById("contributors-grid");
     if (!grid) return;
 
     grid.innerHTML = contributors
-      .map(
-        (c: {
-          login: string;
-          avatar_url: string;
-          html_url: string;
-          contributions: number;
-        }) => {
-          const safeLogin = escapeHtml(c.login);
-          const safeAvatarUrl =
-            isGitHubUrl(c.avatar_url) ? escapeHtml(`${c.avatar_url}&s=80`) : "";
-          const safeHtmlUrl =
-            isGitHubUrl(c.html_url) ? escapeHtml(c.html_url) : "#";
+      .map((c: GitHubContributor) => {
+        const safeLogin = escapeHtml(c.login);
+        const safeAvatarUrl =
+          isGitHubUrl(c.avatar_url) ? escapeHtml(`${c.avatar_url}&s=80`) : "";
+        const safeHtmlUrl =
+          isGitHubUrl(c.html_url) ? escapeHtml(c.html_url) : "#";
 
-          return `
+        return `
         <a
           href="${safeHtmlUrl}"
           target="_blank"
@@ -1532,8 +1804,7 @@ export async function fetchContributors() {
             ${c.contributions} commits
           </span>
         </a>`;
-        },
-      )
+      })
       .join("");
 
     const cards = Array.from(grid.children) as HTMLElement[];

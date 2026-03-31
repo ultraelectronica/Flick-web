@@ -18,6 +18,7 @@ const ALLOWED_PATHS = [
   /^\/repos\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/,
   /^\/repos\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/contributors$/,
   /^\/repos\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/commits$/,
+  /^\/repos\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/stats\/contributors$/,
 ];
 
 const ALLOWED_QS_KEYS = new Set(["page", "per_page"]);
