@@ -656,6 +656,7 @@ function renderTimelineChart(
   points: TimelineBarPoint[],
   options: {
     accentColor: string;
+    chartType?: "bar" | "line";
     emptyLabel: string;
     unitLabel: string;
   },
@@ -685,12 +686,22 @@ function renderTimelineChart(
   const maxValue = Math.max(...points.map((point) => point.value), 1);
   const chartMax = getChartMax(maxValue);
   const slotWidth = innerWidth / points.length;
-  const barWidth = Math.max(
-    layout.minBarWidth,
+  const chartType = options.chartType ?? "bar";
+  const preferredBarWidth = Math.max(
+    2,
     Math.min(
       layout.maxBarWidth,
-      slotWidth * (layout.mode === "mobile" ? 0.58 : 0.64),
+      slotWidth * (layout.mode === "mobile" ? 0.5 : 0.56),
     ),
+  );
+  const minGap = Math.min(
+    layout.mode === "mobile" ? 8 : 10,
+    Math.max(slotWidth * 0.32, 3),
+  );
+  const maxBarWidthForGap = Math.max(2, slotWidth - minGap);
+  const barWidth = Math.min(
+    Math.max(layout.minBarWidth, preferredBarWidth),
+    maxBarWidthForGap,
   );
   const labelFrequency = layout.labelFrequency;
 
@@ -727,7 +738,7 @@ function renderTimelineChart(
             y="${y}"
             width="${barWidth}"
             height="${displayHeight}"
-            rx="8"
+            rx="${Math.min(8, barWidth / 2)}"
             fill="${options.accentColor}"
             fill-opacity="${point.value > 0 ? 1 : 0.18}"
           />
@@ -749,17 +760,104 @@ function renderTimelineChart(
     })
     .join("");
 
+  const linePoints = points.map((point, index) => {
+    const x = paddingLeft + index * slotWidth + slotWidth / 2;
+    const y =
+      paddingTop + innerHeight - (point.value / chartMax) * innerHeight;
+    return { ...point, x, y };
+  });
+
+  const lineAreaGradientId = `${containerId}-line-area`;
+  const linePath =
+    linePoints.length > 1
+      ? linePoints
+          .map((point, index) => {
+            const command = index === 0 ? "M" : "L";
+            return `${command} ${point.x} ${point.y}`;
+          })
+          .join(" ")
+      : "";
+  const areaBaselineY = paddingTop + innerHeight;
+  const lineAreaPath =
+    linePoints.length > 1
+      ? `${linePath} L ${linePoints[linePoints.length - 1].x} ${areaBaselineY} L ${linePoints[0].x} ${areaBaselineY} Z`
+      : "";
+  const lineLabels = linePoints
+    .map((point, index) => {
+      const shouldRenderLabel =
+        index % labelFrequency === 0 || index === linePoints.length - 1;
+      if (!shouldRenderLabel) return "";
+
+      return `
+        <text
+          x="${point.x}"
+          y="${chartHeight - 18}"
+          fill="rgba(156,163,175,0.82)"
+          text-anchor="middle"
+          font-size="${layout.xAxisFontSize}"
+        >
+          ${escapeHtml(point.shortLabel)}
+        </text>`;
+    })
+    .join("");
+  const lineMarkers = linePoints
+    .map((point) => {
+      const markerRadius = layout.mode === "mobile" ? 3 : 4;
+      const hitRadius = layout.mode === "mobile" ? 10 : 12;
+
+      return `
+        <g>
+          <title>${escapeHtml(
+            `${point.detail}: ${formatCount(point.value)} ${options.unitLabel}`,
+          )}</title>
+          <circle
+            cx="${point.x}"
+            cy="${point.y}"
+            r="${hitRadius}"
+            fill="transparent"
+          />
+          <circle
+            cx="${point.x}"
+            cy="${point.y}"
+            r="${markerRadius}"
+            fill="${options.accentColor}"
+            stroke="rgba(16,16,16,0.92)"
+            stroke-width="2"
+          />
+        </g>`;
+    })
+    .join("");
+  const lineMarkup = `
+    <defs>
+      <linearGradient id="${lineAreaGradientId}" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="${options.accentColor}" stop-opacity="0.28" />
+        <stop offset="100%" stop-color="${options.accentColor}" stop-opacity="0.02" />
+      </linearGradient>
+    </defs>
+    ${
+      lineAreaPath
+        ? `<path d="${lineAreaPath}" fill="url(#${lineAreaGradientId})" />`
+        : ""
+    }
+    ${
+      linePath
+        ? `<path d="${linePath}" fill="none" stroke="${options.accentColor}" stroke-width="${layout.mode === "mobile" ? 2.5 : 3}" stroke-linecap="round" stroke-linejoin="round" />`
+        : ""
+    }
+    ${lineMarkers}
+    ${lineLabels}`;
+
   const svgMarkup = `
     <svg
       viewBox="0 0 ${chartWidth} ${chartHeight}"
       width="${chartWidth}"
       height="${chartHeight}"
       class="${layout.svgClassName}"
-      aria-label="Timeline bar chart"
+      aria-label="Timeline chart"
       role="img"
     >
       ${gridLines}
-      ${bars}
+      ${chartType === "line" ? lineMarkup : bars}
     </svg>`;
 
   container.innerHTML =
@@ -1495,6 +1593,7 @@ function renderReleaseNotesAnalytics(
 
   renderTimelineChart("contributors-chart", contributorChartPoints, {
     accentColor: "#34D399",
+    chartType: "line",
     emptyLabel: "Contributor history could not be loaded from GitHub.",
     unitLabel: "contributors",
   });
