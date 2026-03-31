@@ -37,16 +37,16 @@ export function DownloadStats(): string {
 
   <div class="flex flex-col">
     <p class="min-h-[2.5rem] text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500 mb-2 drop-shadow-md">
-      Website Download Clicks
+      Total Contributors
     </p>
     <p
-      id="website-download-count"
+      id="contributor-count"
       class="text-3xl sm:text-[2rem] font-bold tracking-tight text-white drop-shadow-lg"
     >
-      0
+      --
     </p>
     <p class="text-sm text-gray-400 leading-relaxed mt-2 drop-shadow-md">
-      Tracked from the download button in this browser.
+      Current contributor total from the Flick repository.
     </p>
   </div>
 </div>`;

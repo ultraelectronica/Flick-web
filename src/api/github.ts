@@ -10,6 +10,8 @@ const WEBSITE_DOWNLOAD_CLICK_TIMESTAMPS_STORAGE_KEY =
   "flick-website-download-click-timestamps";
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const API_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CONTRIBUTOR_STATS_RETRY_MS = 700;
+const DISCLOSURE_EASE = [0.22, 1, 0.36, 1] as const;
 
 async function githubApiFetch(path: string, qs?: string): Promise<Response> {
   const params = new URLSearchParams({ path });
@@ -73,10 +75,42 @@ interface GitHubRepositoryInfo {
   stargazers_count?: number;
 }
 
+interface GitHubContributor {
+  avatar_url: string;
+  contributions: number;
+  html_url: string;
+  login: string;
+}
+
+interface GitHubContributorWeek {
+  c?: number;
+  w?: number;
+}
+
+interface GitHubContributorStats {
+  author?: {
+    login?: string | null;
+  } | null;
+  total?: number;
+  weeks?: GitHubContributorWeek[];
+}
+
 interface TimelineBarPoint {
   detail: string;
   shortLabel: string;
   value: number;
+}
+
+interface ReleaseBodyImage {
+  alt: string;
+  height?: number;
+  src: string;
+  width?: number;
+}
+
+interface ReleaseBodyImageParseResult {
+  images: ReleaseBodyImage[];
+  remainingText: string;
 }
 
 interface TimelineChartLayout {
@@ -99,6 +133,9 @@ interface TimelineChartLayout {
 
 let releaseCachePromise: Promise<GitHubRelease[]> | null = null;
 let repositoryInfoCachePromise: Promise<GitHubRepositoryInfo> | null = null;
+let contributorCachePromise: Promise<GitHubContributor[]> | null = null;
+let contributorStatsCachePromise: Promise<GitHubContributorStats[]> | null =
+  null;
 let activeReleasePeriod: ChartPeriod = "90d";
 let releaseNotesResizeListenerBound = false;
 let releaseNotesResizeTimer = 0;
@@ -124,6 +161,12 @@ function writeApiCache<T>(key: string, data: T): void {
   } catch {
     // Storage full or unavailable — ignore
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function formatCount(value: number): string {
@@ -181,6 +224,12 @@ function renderRepositoryStars(starCount?: number): void {
 
   setTextContent("repo-star-count", formattedCount);
   setTextContent("release-repo-star-count", formattedCount);
+}
+
+function renderContributorCount(count?: number): void {
+  const formattedCount = typeof count === "number" ? formatCount(count) : "--";
+  setTextContent("contributor-count", formattedCount);
+  setTextContent("release-contributor-total", formattedCount);
 }
 
 function getReleasePageUrl(tagName?: string): string {
@@ -299,7 +348,6 @@ function getWebsiteDownloadClickTotal(): number {
 function renderWebsiteDownloadClicks(
   count = getWebsiteDownloadClickTotal(),
 ): void {
-  setTextContent("website-download-count", formatCount(count));
   setTextContent("release-website-total", formatCount(count));
 }
 
@@ -402,46 +450,6 @@ function formatBucketDetail(
   return fullDateFormatter.format(timestamp);
 }
 
-function buildWebsiteDownloadTimeline(period: ChartPeriod): TimelineBarPoint[] {
-  const timestamps = getStoredWebsiteDownloadClickTimestamps();
-  if (timestamps.length === 0) return [];
-
-  const resolution = getBucketResolution(period);
-  const now = Date.now();
-  const rawStart =
-    period === "all" ? timestamps[0] : getChartPeriodStart(period, now);
-  const start = getBucketStart(rawStart, resolution);
-  const end = getBucketStart(now, resolution);
-  const countsByBucket = new Map<number, number>();
-
-  timestamps
-    .filter((timestamp) => timestamp >= rawStart && timestamp <= now)
-    .forEach((timestamp) => {
-      const bucketStart = getBucketStart(timestamp, resolution);
-      countsByBucket.set(
-        bucketStart,
-        (countsByBucket.get(bucketStart) ?? 0) + 1,
-      );
-    });
-
-  const points: TimelineBarPoint[] = [];
-
-  for (
-    let cursor = start;
-    cursor <= end;
-    cursor = addBucketStep(cursor, resolution)
-  ) {
-    const value = countsByBucket.get(cursor) ?? 0;
-    points.push({
-      detail: formatBucketDetail(cursor, resolution),
-      shortLabel: formatBucketShortLabel(cursor, resolution),
-      value,
-    });
-  }
-
-  return points;
-}
-
 function getReleasesInPeriod(
   releases: GitHubRelease[],
   period: ChartPeriod,
@@ -475,6 +483,79 @@ function buildGitHubDownloadTimeline(
         value: getReleaseDownloadTotal(release),
       };
     });
+}
+
+function getContributorFirstContributionTimestamps(
+  contributorStats: GitHubContributorStats[],
+): number[] {
+  return contributorStats
+    .map((stat) => {
+      const firstActiveWeek = stat.weeks?.find((week) => {
+        return (
+          typeof week.w === "number" &&
+          typeof week.c === "number" &&
+          week.c > 0
+        );
+      });
+
+      if (!firstActiveWeek || typeof firstActiveWeek.w !== "number") {
+        return 0;
+      }
+
+      return firstActiveWeek.w * 1000;
+    })
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp > 0)
+    .sort((left, right) => left - right);
+}
+
+function buildContributorTimeline(
+  contributorStats: GitHubContributorStats[],
+  period: ChartPeriod,
+): TimelineBarPoint[] {
+  const timestamps = getContributorFirstContributionTimestamps(contributorStats);
+  if (timestamps.length === 0) return [];
+
+  const resolution = getBucketResolution(period);
+  const now = Date.now();
+  const rawStart =
+    period === "all" ? timestamps[0] : getChartPeriodStart(period, now);
+  const start = getBucketStart(rawStart, resolution);
+  const end = getBucketStart(now, resolution);
+  const countsByBucket = new Map<number, number>();
+
+  timestamps
+    .filter((timestamp) => timestamp <= now)
+    .forEach((timestamp) => {
+      const bucketStart = getBucketStart(timestamp, resolution);
+      countsByBucket.set(
+        bucketStart,
+        (countsByBucket.get(bucketStart) ?? 0) + 1,
+      );
+    });
+
+  let runningTotal = timestamps.filter((timestamp) => timestamp < start).length;
+  const points: TimelineBarPoint[] = [];
+
+  for (
+    let cursor = start;
+    cursor <= end;
+    cursor = addBucketStep(cursor, resolution)
+  ) {
+    runningTotal += countsByBucket.get(cursor) ?? 0;
+    points.push({
+      detail: `${formatBucketDetail(cursor, resolution)} • ${formatCount(
+        runningTotal,
+      )} contributors total`,
+      shortLabel: formatBucketShortLabel(cursor, resolution),
+      value: runningTotal,
+    });
+  }
+
+  return points;
+}
+
+function getTimelineFinalValue(points: TimelineBarPoint[]): number {
+  return points.length > 0 ? points[points.length - 1].value : 0;
 }
 
 function isMobileChartViewport(): boolean {
@@ -575,6 +656,7 @@ function renderTimelineChart(
   points: TimelineBarPoint[],
   options: {
     accentColor: string;
+    chartType?: "bar" | "line";
     emptyLabel: string;
     unitLabel: string;
   },
@@ -604,12 +686,22 @@ function renderTimelineChart(
   const maxValue = Math.max(...points.map((point) => point.value), 1);
   const chartMax = getChartMax(maxValue);
   const slotWidth = innerWidth / points.length;
-  const barWidth = Math.max(
-    layout.minBarWidth,
+  const chartType = options.chartType ?? "bar";
+  const preferredBarWidth = Math.max(
+    2,
     Math.min(
       layout.maxBarWidth,
-      slotWidth * (layout.mode === "mobile" ? 0.58 : 0.64),
+      slotWidth * (layout.mode === "mobile" ? 0.5 : 0.56),
     ),
+  );
+  const minGap = Math.min(
+    layout.mode === "mobile" ? 8 : 10,
+    Math.max(slotWidth * 0.32, 3),
+  );
+  const maxBarWidthForGap = Math.max(2, slotWidth - minGap);
+  const barWidth = Math.min(
+    Math.max(layout.minBarWidth, preferredBarWidth),
+    maxBarWidthForGap,
   );
   const labelFrequency = layout.labelFrequency;
 
@@ -646,7 +738,7 @@ function renderTimelineChart(
             y="${y}"
             width="${barWidth}"
             height="${displayHeight}"
-            rx="8"
+            rx="${Math.min(8, barWidth / 2)}"
             fill="${options.accentColor}"
             fill-opacity="${point.value > 0 ? 1 : 0.18}"
           />
@@ -668,17 +760,104 @@ function renderTimelineChart(
     })
     .join("");
 
+  const linePoints = points.map((point, index) => {
+    const x = paddingLeft + index * slotWidth + slotWidth / 2;
+    const y =
+      paddingTop + innerHeight - (point.value / chartMax) * innerHeight;
+    return { ...point, x, y };
+  });
+
+  const lineAreaGradientId = `${containerId}-line-area`;
+  const linePath =
+    linePoints.length > 1
+      ? linePoints
+          .map((point, index) => {
+            const command = index === 0 ? "M" : "L";
+            return `${command} ${point.x} ${point.y}`;
+          })
+          .join(" ")
+      : "";
+  const areaBaselineY = paddingTop + innerHeight;
+  const lineAreaPath =
+    linePoints.length > 1
+      ? `${linePath} L ${linePoints[linePoints.length - 1].x} ${areaBaselineY} L ${linePoints[0].x} ${areaBaselineY} Z`
+      : "";
+  const lineLabels = linePoints
+    .map((point, index) => {
+      const shouldRenderLabel =
+        index % labelFrequency === 0 || index === linePoints.length - 1;
+      if (!shouldRenderLabel) return "";
+
+      return `
+        <text
+          x="${point.x}"
+          y="${chartHeight - 18}"
+          fill="rgba(156,163,175,0.82)"
+          text-anchor="middle"
+          font-size="${layout.xAxisFontSize}"
+        >
+          ${escapeHtml(point.shortLabel)}
+        </text>`;
+    })
+    .join("");
+  const lineMarkers = linePoints
+    .map((point) => {
+      const markerRadius = layout.mode === "mobile" ? 3 : 4;
+      const hitRadius = layout.mode === "mobile" ? 10 : 12;
+
+      return `
+        <g>
+          <title>${escapeHtml(
+            `${point.detail}: ${formatCount(point.value)} ${options.unitLabel}`,
+          )}</title>
+          <circle
+            cx="${point.x}"
+            cy="${point.y}"
+            r="${hitRadius}"
+            fill="transparent"
+          />
+          <circle
+            cx="${point.x}"
+            cy="${point.y}"
+            r="${markerRadius}"
+            fill="${options.accentColor}"
+            stroke="rgba(16,16,16,0.92)"
+            stroke-width="2"
+          />
+        </g>`;
+    })
+    .join("");
+  const lineMarkup = `
+    <defs>
+      <linearGradient id="${lineAreaGradientId}" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="${options.accentColor}" stop-opacity="0.28" />
+        <stop offset="100%" stop-color="${options.accentColor}" stop-opacity="0.02" />
+      </linearGradient>
+    </defs>
+    ${
+      lineAreaPath
+        ? `<path d="${lineAreaPath}" fill="url(#${lineAreaGradientId})" />`
+        : ""
+    }
+    ${
+      linePath
+        ? `<path d="${linePath}" fill="none" stroke="${options.accentColor}" stroke-width="${layout.mode === "mobile" ? 2.5 : 3}" stroke-linecap="round" stroke-linejoin="round" />`
+        : ""
+    }
+    ${lineMarkers}
+    ${lineLabels}`;
+
   const svgMarkup = `
     <svg
       viewBox="0 0 ${chartWidth} ${chartHeight}"
       width="${chartWidth}"
       height="${chartHeight}"
       class="${layout.svgClassName}"
-      aria-label="Timeline bar chart"
+      aria-label="Timeline chart"
       role="img"
     >
       ${gridLines}
-      ${bars}
+      ${chartType === "line" ? lineMarkup : bars}
     </svg>`;
 
   container.innerHTML =
@@ -711,6 +890,189 @@ function renderGitHubDownloadCount(releases: GitHubRelease[]): void {
 
   setTextContent("github-download-count", formatCount(totalDownloads));
   setTextContent("release-total-downloads", formatCount(totalDownloads));
+}
+
+function getSafeExternalUrl(rawValue: string): string | null {
+  try {
+    const parsedUrl = new URL(rawValue.trim());
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return null;
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function parsePositiveInteger(rawValue?: string): number | undefined {
+  if (!rawValue) return undefined;
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return undefined;
+  }
+
+  return parsedValue;
+}
+
+function parseHtmlTagAttributes(tagMarkup: string): Map<string, string> {
+  const attributes = new Map<string, string>();
+  const attributePattern = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+
+  for (const match of tagMarkup.matchAll(attributePattern)) {
+    const attributeName = match[1]?.toLowerCase();
+    const attributeValue = match[2] ?? match[3] ?? match[4] ?? "";
+    if (!attributeName) continue;
+    attributes.set(attributeName, attributeValue);
+  }
+
+  return attributes;
+}
+
+function parseHtmlImageTag(tagMarkup: string): ReleaseBodyImage | null {
+  const attributes = parseHtmlTagAttributes(tagMarkup);
+  const src = getSafeExternalUrl(attributes.get("src") ?? "");
+  if (!src) return null;
+
+  return {
+    alt: attributes.get("alt")?.trim() || "Release image",
+    height: parsePositiveInteger(attributes.get("height")),
+    src,
+    width: parsePositiveInteger(attributes.get("width")),
+  };
+}
+
+function parseMarkdownImageToken(markup: string): ReleaseBodyImage | null {
+  const match = markup.match(/^!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"([^"]*)")?\)$/);
+  if (!match) return null;
+
+  const src = getSafeExternalUrl(match[2]);
+  if (!src) return null;
+
+  return {
+    alt: match[1]?.trim() || match[3]?.trim() || "Release image",
+    src,
+  };
+}
+
+function looksLikeImageUrl(rawUrl: string): boolean {
+  try {
+    const parsedUrl = new URL(rawUrl);
+    const pathname = parsedUrl.pathname.toLowerCase();
+
+    return (
+      /\.(apng|avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(pathname) ||
+      pathname.includes("/user-attachments/assets/") ||
+      parsedUrl.hostname.endsWith("githubusercontent.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseStandaloneImageUrl(rawToken: string): ReleaseBodyImage | null {
+  const trimmedToken = rawToken.trim().replace(/^<|>$/g, "");
+  const src = getSafeExternalUrl(trimmedToken);
+  if (!src || !looksLikeImageUrl(src)) return null;
+
+  return {
+    alt: "Release image",
+    src,
+  };
+}
+
+function normalizeInlineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function extractHtmlImagesFromLine(line: string): ReleaseBodyImageParseResult | null {
+  const matches = [...line.matchAll(/<img\b[^>]*\/?>/gi)];
+  if (matches.length === 0) return null;
+
+  const images = matches
+    .map((match) => parseHtmlImageTag(match[0]))
+    .filter((image): image is ReleaseBodyImage => image !== null);
+
+  if (images.length === 0) return null;
+
+  return {
+    images,
+    remainingText: normalizeInlineText(line.replace(/<img\b[^>]*\/?>/gi, " ")),
+  };
+}
+
+function extractMarkdownImagesFromLine(line: string): ReleaseBodyImageParseResult | null {
+  const tokenPattern = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const matches = [...line.matchAll(tokenPattern)];
+  if (matches.length === 0) return null;
+
+  const images = matches
+    .map((match) => parseMarkdownImageToken(match[0]))
+    .filter((image): image is ReleaseBodyImage => image !== null);
+
+  if (images.length === 0) return null;
+
+  return {
+    images,
+    remainingText: normalizeInlineText(line.replace(tokenPattern, " ")),
+  };
+}
+
+function extractStandaloneImageUrlsFromLine(line: string): ReleaseBodyImage[] | null {
+  const tokens = line
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) return null;
+
+  const images = tokens
+    .map((token) => parseStandaloneImageUrl(token))
+    .filter((image): image is ReleaseBodyImage => image !== null);
+
+  return images.length === tokens.length ? images : null;
+}
+
+function renderReleaseImageGallery(images: ReleaseBodyImage[]): string {
+  const galleryGridClass =
+    images.length === 1
+      ? "grid-cols-1 max-w-md"
+      : images.length === 2
+        ? "grid-cols-1 sm:grid-cols-2"
+        : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3";
+
+  return `
+    <div class="grid ${galleryGridClass} gap-3">
+      ${images
+        .map((image) => {
+          const dimensionAttributes = [
+            image.width ? `width="${image.width}"` : "",
+            image.height ? `height="${image.height}"` : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return `
+            <a
+              href="${escapeHtml(image.src)}"
+              target="_blank"
+              rel="noopener"
+              class="group block rounded-[1.35rem] border border-white/10 bg-black/25 p-2 transition-colors hover:border-white/20"
+            >
+              <img
+                src="${escapeHtml(image.src)}"
+                alt="${escapeHtml(image.alt)}"
+                ${dimensionAttributes}
+                loading="lazy"
+                decoding="async"
+                class="w-full h-auto rounded-[1rem] bg-[#0d0d0d]"
+              />
+            </a>`;
+        })
+        .join("")}
+    </div>`;
 }
 
 function formatInlineMarkdown(value: string): string {
@@ -752,6 +1114,7 @@ function renderReleaseBody(markdown?: string): string {
   const blocks: string[] = [];
   let paragraphLines: string[] = [];
   let listItems: string[] = [];
+  let galleryImages: ReleaseBodyImage[] = [];
 
   const flushParagraph = () => {
     if (paragraphLines.length === 0) return;
@@ -761,6 +1124,13 @@ function renderReleaseBody(markdown?: string): string {
         ${formatInlineMarkdown(paragraphLines.join(" "))}
       </p>`);
     paragraphLines = [];
+  };
+
+  const flushGallery = () => {
+    if (galleryImages.length === 0) return;
+
+    blocks.push(renderReleaseImageGallery(galleryImages));
+    galleryImages = [];
   };
 
   const flushList = () => {
@@ -779,8 +1149,49 @@ function renderReleaseBody(markdown?: string): string {
     if (!line) {
       flushParagraph();
       flushList();
+      flushGallery();
       return;
     }
+
+    const htmlImages = extractHtmlImagesFromLine(line);
+    if (htmlImages) {
+      flushParagraph();
+      flushList();
+      if (htmlImages.remainingText) {
+        flushGallery();
+        blocks.push(`
+          <p class="text-gray-300 leading-relaxed">
+            ${formatInlineMarkdown(htmlImages.remainingText)}
+          </p>`);
+      }
+      galleryImages.push(...htmlImages.images);
+      return;
+    }
+
+    const markdownImages = extractMarkdownImagesFromLine(line);
+    if (markdownImages) {
+      flushParagraph();
+      flushList();
+      if (markdownImages.remainingText) {
+        flushGallery();
+        blocks.push(`
+          <p class="text-gray-300 leading-relaxed">
+            ${formatInlineMarkdown(markdownImages.remainingText)}
+          </p>`);
+      }
+      galleryImages.push(...markdownImages.images);
+      return;
+    }
+
+    const standaloneImageUrls = extractStandaloneImageUrlsFromLine(line);
+    if (standaloneImageUrls) {
+      flushParagraph();
+      flushList();
+      galleryImages.push(...standaloneImageUrls);
+      return;
+    }
+
+    flushGallery();
 
     const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
     if (headingMatch) {
@@ -833,6 +1244,7 @@ function renderReleaseBody(markdown?: string): string {
 
   flushParagraph();
   flushList();
+  flushGallery();
 
   return `<div class="space-y-4">${blocks.join("")}</div>`;
 }
@@ -847,7 +1259,7 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
   );
 
   list.innerHTML = sortedReleases
-    .map((release) => {
+    .map((release, index) => {
       const publishedTimestamp = getReleasePublishedTimestamp(release);
       const publishedLabel =
         publishedTimestamp > 0
@@ -860,6 +1272,8 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
         release.html_url && isGitHubUrl(release.html_url)
           ? release.html_url
           : getReleasePageUrl(release.tag_name);
+      const notesPanelId = `release-notes-panel-${index}`;
+      const notesSummaryId = `release-notes-summary-${index}`;
 
       return `
         <article class="rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#191919] to-[#111111] p-6 md:p-8 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
@@ -906,15 +1320,27 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
             </div>
           </div>
 
-          <details class="group mt-6 border-t border-white/10 pt-6">
-            <summary class="flex cursor-pointer items-center justify-between font-semibold text-gray-300 hover:text-white transition-colors list-none select-none [&::-webkit-details-marker]:hidden">
+          <details class="release-notes-disclosure group mt-6 border-t border-white/10 pt-6">
+            <summary
+              id="${notesSummaryId}"
+              aria-controls="${notesPanelId}"
+              aria-expanded="false"
+              class="release-notes-summary flex cursor-pointer items-center justify-between font-semibold text-gray-300 hover:text-white transition-colors list-none select-none [&::-webkit-details-marker]:hidden"
+            >
               <span class="text-[13px] tracking-[0.1em] uppercase">Release Notes</span>
-              <span class="transition-transform duration-300 group-open:rotate-180 bg-white/5 border border-white/10 p-1.5 rounded-full">
+              <span class="release-notes-summary-icon transition-transform duration-300 group-open:rotate-180 bg-white/5 border border-white/10 p-1.5 rounded-full">
                 <svg fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="18"><path d="M6 9l6 6 6-6"></path></svg>
               </span>
             </summary>
-            <div class="mt-6 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-              ${renderReleaseBody(release.body)}
+            <div
+              id="${notesPanelId}"
+              role="region"
+              aria-labelledby="${notesSummaryId}"
+              class="release-notes-panel overflow-hidden"
+            >
+              <div class="release-notes-panel-inner mt-6">
+                ${renderReleaseBody(release.body)}
+              </div>
             </div>
           </details>
         </article>`;
@@ -922,6 +1348,131 @@ function renderReleaseNotesList(releases: GitHubRelease[]): void {
     .join("");
 
   bindTrackedDownloadLinks();
+  bindReleaseNotesDropdowns();
+}
+
+function bindReleaseNotesDropdowns(): void {
+  const disclosures = document.querySelectorAll<HTMLDetailsElement>(
+    ".release-notes-disclosure",
+  );
+
+  disclosures.forEach((disclosure) => {
+    if (disclosure.dataset.bound === "true") return;
+
+    const summary = disclosure.querySelector<HTMLElement>(
+      ".release-notes-summary",
+    );
+    const panel = disclosure.querySelector<HTMLElement>(".release-notes-panel");
+    const panelInner = disclosure.querySelector<HTMLElement>(
+      ".release-notes-panel-inner",
+    );
+    if (!summary || !panel || !panelInner) return;
+
+    disclosure.dataset.bound = "true";
+
+    summary.addEventListener("click", (event) => {
+      event.preventDefault();
+
+      if (disclosure.dataset.animating === "true") return;
+
+      if (disclosure.open) {
+        void collapseReleaseNotesDropdown(disclosure, summary, panel, panelInner);
+        return;
+      }
+
+      void expandReleaseNotesDropdown(disclosure, summary, panel, panelInner);
+    });
+  });
+}
+
+async function expandReleaseNotesDropdown(
+  disclosure: HTMLDetailsElement,
+  summary: HTMLElement,
+  panel: HTMLElement,
+  panelInner: HTMLElement,
+): Promise<void> {
+  disclosure.dataset.animating = "true";
+  summary.setAttribute("aria-expanded", "true");
+  disclosure.open = true;
+
+  panel.style.overflow = "hidden";
+  panel.style.height = "0px";
+  panelInner.style.opacity = "0";
+  panelInner.style.transform = "translateY(-12px)";
+
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
+  const targetHeight = `${panel.scrollHeight}px`;
+
+  await Promise.allSettled([
+    animate(
+      panel,
+      { height: ["0px", targetHeight] },
+      { duration: 0.32, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      panelInner,
+      { opacity: [0, 1], y: [-12, 0] },
+      { duration: 0.28, delay: 0.04, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      summary,
+      { scale: [1, 0.985, 1] },
+      { duration: 0.22, ease: DISCLOSURE_EASE },
+    ).finished,
+  ]);
+
+  panel.style.height = "";
+  panel.style.overflow = "";
+  panelInner.style.opacity = "";
+  panelInner.style.transform = "";
+  delete disclosure.dataset.animating;
+}
+
+async function collapseReleaseNotesDropdown(
+  disclosure: HTMLDetailsElement,
+  summary: HTMLElement,
+  panel: HTMLElement,
+  panelInner: HTMLElement,
+): Promise<void> {
+  disclosure.dataset.animating = "true";
+  summary.setAttribute("aria-expanded", "false");
+
+  panel.style.overflow = "hidden";
+  panel.style.height = `${panel.getBoundingClientRect().height}px`;
+
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
+  const startHeight = `${panel.getBoundingClientRect().height}px`;
+
+  await Promise.allSettled([
+    animate(
+      panel,
+      { height: [startHeight, "0px"] },
+      { duration: 0.28, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      panelInner,
+      { opacity: [1, 0], y: [0, -12] },
+      { duration: 0.2, ease: DISCLOSURE_EASE },
+    ).finished,
+    animate(
+      summary,
+      { scale: [1, 0.99, 1] },
+      { duration: 0.18, ease: DISCLOSURE_EASE },
+    ).finished,
+  ]);
+
+  disclosure.open = false;
+  panel.style.height = "";
+  panel.style.overflow = "";
+  panelInner.style.opacity = "";
+  panelInner.style.transform = "";
+  delete disclosure.dataset.animating;
 }
 
 function updateReleasePeriodButtons(period: ChartPeriod): void {
@@ -947,6 +1498,8 @@ function updateReleasePeriodButtons(period: ChartPeriod): void {
 function renderReleaseNotesAnalytics(
   releases: GitHubRelease[],
   period: ChartPeriod,
+  contributorCount?: number,
+  contributorStats?: GitHubContributorStats[] | null,
 ): void {
   activeReleasePeriod = period;
 
@@ -955,14 +1508,35 @@ function renderReleaseNotesAnalytics(
     return sum + getReleaseDownloadTotal(release);
   }, 0);
   const releaseTimeline = buildGitHubDownloadTimeline(releases, period);
-  const websiteTimeline = buildWebsiteDownloadTimeline(period);
-  const websiteTimelineTotal = websiteTimeline.reduce((sum, point) => {
-    return sum + point.value;
-  }, 0);
-  const websiteResolution = getBucketResolution(period);
+  const contributorTimeline =
+    contributorStats && contributorStats.length > 0
+      ? buildContributorTimeline(contributorStats, period)
+      : [];
+  const contributorChartPoints =
+    contributorTimeline.length > 0
+      ? contributorTimeline
+      : typeof contributorCount === "number"
+        ? [
+            {
+              detail: `Current total contributors: ${formatCount(
+                contributorCount,
+              )}`,
+              shortLabel: "Now",
+              value: contributorCount,
+            },
+          ]
+        : [];
+  const contributorTimelineTotal = getTimelineFinalValue(contributorChartPoints);
+  const contributorResolution = getBucketResolution(period);
 
   renderGitHubDownloadCount(releases);
-  renderWebsiteDownloadClicks();
+  renderContributorCount(
+    typeof contributorCount === "number"
+      ? contributorCount
+      : contributorTimeline.length > 0
+        ? contributorTimelineTotal
+        : undefined,
+  );
 
   setTextContent(
     "release-period-downloads",
@@ -993,10 +1567,14 @@ function renderReleaseNotesAnalytics(
   );
 
   setTextContent(
-    "website-downloads-caption",
-    websiteTimeline.length > 0
-      ? `${formatCount(websiteTimelineTotal)} clicks grouped by ${websiteResolution} in ${getPeriodRangeLabel(period)}.`
-      : `No local website click history exists in ${getPeriodRangeLabel(period)}.`,
+    "contributors-caption",
+    contributorTimeline.length > 0
+      ? `${formatCount(
+          contributorTimelineTotal,
+        )} cumulative contributors grouped by ${contributorResolution} in ${getPeriodRangeLabel(period)}.`
+      : typeof contributorCount === "number"
+        ? "Showing the current repository total because detailed contributor history is unavailable right now."
+        : "Contributor history could not be loaded from GitHub.",
   );
 
   renderTimelineChart("release-downloads-chart", releaseTimeline, {
@@ -1013,21 +1591,25 @@ function renderReleaseNotesAnalytics(
     getTimelineRangeLabel(releaseTimeline),
   );
 
-  renderTimelineChart("website-downloads-chart", websiteTimeline, {
-    accentColor: "#7DD3FC",
-    emptyLabel:
-      period === "all"
-        ? "Website clicks start appearing here once downloads are triggered from this browser."
-        : `No website click events were recorded in ${getPeriodRangeLabel(period)}.`,
-    unitLabel: "clicks",
+  renderTimelineChart("contributors-chart", contributorChartPoints, {
+    accentColor: "#34D399",
+    chartType: "line",
+    emptyLabel: "Contributor history could not be loaded from GitHub.",
+    unitLabel: "contributors",
   });
   setTextContent(
-    "website-downloads-total",
-    `${formatCount(websiteTimelineTotal)} clicks`,
+    "contributors-total",
+    contributorChartPoints.length > 0
+      ? `${formatCount(contributorTimelineTotal)} contributors`
+      : "--",
   );
   setTextContent(
-    "website-downloads-range",
-    getTimelineRangeLabel(websiteTimeline),
+    "contributors-range",
+    contributorTimeline.length > 0
+      ? getTimelineRangeLabel(contributorTimeline)
+      : contributorChartPoints.length > 0
+        ? "Current total"
+        : "No data",
   );
 
   updateReleasePeriodButtons(period);
@@ -1037,8 +1619,17 @@ async function refreshReleaseNotesAnalyticsIfVisible(): Promise<void> {
   if (!document.getElementById("release-notes-view")) return;
 
   try {
-    const releases = await fetchPublishedReleases();
-    renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+    const [releases, contributors, contributorStats] = await Promise.all([
+      fetchPublishedReleases(),
+      fetchContributorList().catch(() => null),
+      fetchContributorStats().catch(() => null),
+    ]);
+    renderReleaseNotesAnalytics(
+      releases,
+      activeReleasePeriod,
+      contributors?.length,
+      contributorStats,
+    );
   } catch {
     // Leave the existing UI intact if release history cannot be refreshed.
   }
@@ -1143,13 +1734,12 @@ function incrementWebsiteDownloadClicks(): number {
 
   const nextTotal = getLegacyWebsiteDownloadClicks() + timestamps.length;
   renderWebsiteDownloadClicks(nextTotal);
-  void refreshReleaseNotesAnalyticsIfVisible();
 
   return nextTotal;
 }
 
 export async function fetchLatestRelease() {
-  renderWebsiteDownloadClicks();
+  renderContributorCount();
   renderRepositoryStars();
   bindDownloadButton(getReleasePageUrl());
   setTextContent("version-tag", "Latest release on GitHub");
@@ -1174,20 +1764,30 @@ export async function fetchLatestRelease() {
 }
 
 export async function initReleaseNotesPage() {
-  renderWebsiteDownloadClicks();
+  renderContributorCount();
   renderRepositoryStars();
   updateReleasePeriodButtons(activeReleasePeriod);
   ensureReleaseNotesResizeListener();
 
   try {
-    const [releases, repositoryInfo] = await Promise.all([
-      fetchPublishedReleases(),
-      fetchRepositoryInfo().catch(() => null),
-    ]);
+    const [releases, repositoryInfo, contributors, contributorStats] =
+      await Promise.all([
+        fetchPublishedReleases(),
+        fetchRepositoryInfo().catch(() => null),
+        fetchContributorList().catch(() => null),
+        fetchContributorStats().catch(() => null),
+      ]);
+
+    renderContributorCount(contributors?.length);
 
     // Defer chart rendering so container dimensions are fully resolved after layout.
     requestAnimationFrame(() => {
-      renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+      renderReleaseNotesAnalytics(
+        releases,
+        activeReleasePeriod,
+        contributors?.length,
+        contributorStats,
+      );
     });
 
     renderRepositoryStars(repositoryInfo?.stargazers_count);
@@ -1202,7 +1802,12 @@ export async function initReleaseNotesPage() {
           | ChartPeriod
           | undefined;
         if (!nextPeriod) return;
-        renderReleaseNotesAnalytics(releases, nextPeriod);
+        renderReleaseNotesAnalytics(
+          releases,
+          nextPeriod,
+          contributors?.length,
+          contributorStats,
+        );
       };
     });
   } catch {
@@ -1211,9 +1816,12 @@ export async function initReleaseNotesPage() {
       "Release history could not be loaded from GitHub.",
     );
     renderTimelineEmptyState(
-      "website-downloads-chart",
-      "Local click history is still available once downloads are triggered from this browser.",
+      "contributors-chart",
+      "Contributor history could not be loaded from GitHub.",
     );
+    setTextContent("contributors-caption", "Contributor history is unavailable.");
+    setTextContent("contributors-total", "--");
+    setTextContent("contributors-range", "No data");
     setInnerHtml(
       "release-notes-list",
       `
@@ -1224,46 +1832,100 @@ export async function initReleaseNotesPage() {
   }
 }
 
-export async function fetchContributors() {
-  try {
-    let contributors = readApiCache<
-      Array<{
-        login: string;
-        avatar_url: string;
-        html_url: string;
-        contributions: number;
-      }>
-    >("flick-api-contributors");
+async function fetchContributorList(): Promise<GitHubContributor[]> {
+  if (!contributorCachePromise) {
+    contributorCachePromise = (async () => {
+      const cached = readApiCache<GitHubContributor[]>("flick-api-contributors");
+      if (cached) return cached;
 
-    if (!contributors) {
       const res = await githubApiFetch(
         `/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        throw new Error(
+          `GitHub contributors request failed with status ${res.status}`,
+        );
+      }
+
       const data = await res.json();
-      if (!Array.isArray(data)) return;
-      contributors = data;
+      if (!Array.isArray(data)) {
+        throw new Error("GitHub contributors response was not an array");
+      }
+
+      const contributors = data as GitHubContributor[];
       writeApiCache("flick-api-contributors", contributors);
-    }
+      return contributors;
+    })().catch((error) => {
+      contributorCachePromise = null;
+      throw error;
+    });
+  }
+
+  return contributorCachePromise;
+}
+
+async function fetchContributorStats(): Promise<GitHubContributorStats[]> {
+  if (!contributorStatsCachePromise) {
+    contributorStatsCachePromise = (async () => {
+      const cached = readApiCache<GitHubContributorStats[]>(
+        "flick-api-contributor-stats",
+      );
+      if (cached) return cached;
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const res = await githubApiFetch(
+          `/repos/${REPO_OWNER}/${REPO_NAME}/stats/contributors`,
+        );
+
+        if (res.status === 202) {
+          await delay(CONTRIBUTOR_STATS_RETRY_MS * (attempt + 1));
+          continue;
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `GitHub contributor stats request failed with status ${res.status}`,
+          );
+        }
+
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+          throw new Error("GitHub contributor stats response was not an array");
+        }
+
+        const contributorStats = data as GitHubContributorStats[];
+        writeApiCache("flick-api-contributor-stats", contributorStats);
+        return contributorStats;
+      }
+
+      throw new Error("GitHub contributor stats are still being generated");
+    })().catch((error) => {
+      contributorStatsCachePromise = null;
+      throw error;
+    });
+  }
+
+  return contributorStatsCachePromise;
+}
+
+export async function fetchContributors() {
+  try {
+    const contributors = await fetchContributorList();
+
+    renderContributorCount(contributors.length);
 
     const grid = document.getElementById("contributors-grid");
     if (!grid) return;
 
     grid.innerHTML = contributors
-      .map(
-        (c: {
-          login: string;
-          avatar_url: string;
-          html_url: string;
-          contributions: number;
-        }) => {
-          const safeLogin = escapeHtml(c.login);
-          const safeAvatarUrl =
-            isGitHubUrl(c.avatar_url) ? escapeHtml(`${c.avatar_url}&s=80`) : "";
-          const safeHtmlUrl =
-            isGitHubUrl(c.html_url) ? escapeHtml(c.html_url) : "#";
+      .map((c: GitHubContributor) => {
+        const safeLogin = escapeHtml(c.login);
+        const safeAvatarUrl =
+          isGitHubUrl(c.avatar_url) ? escapeHtml(`${c.avatar_url}&s=80`) : "";
+        const safeHtmlUrl =
+          isGitHubUrl(c.html_url) ? escapeHtml(c.html_url) : "#";
 
-          return `
+        return `
         <a
           href="${safeHtmlUrl}"
           target="_blank"
@@ -1287,8 +1949,7 @@ export async function fetchContributors() {
             ${c.contributions} commits
           </span>
         </a>`;
-        },
-      )
+      })
       .join("");
 
     const cards = Array.from(grid.children) as HTMLElement[];
