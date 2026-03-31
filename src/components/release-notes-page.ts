@@ -30,7 +30,7 @@ export function ReleaseNotesPage(): string {
         Release Notes and Download Trends
       </h1>
       <p class="mt-5 text-base md:text-xl text-gray-400 leading-relaxed max-w-3xl">
-        Browse every published changelog, inspect release momentum by date, and compare GitHub release downloads with website click activity over selectable time windows.
+        Browse every published changelog, inspect release momentum by date, and compare GitHub release downloads with contributor growth over selectable time windows.
       </p>
     </div>
 
@@ -58,9 +58,9 @@ export function ReleaseNotesPage(): string {
       </div>
 
       <div data-animate-child class="rounded-[1.75rem] border border-white/10 bg-[#141414]/95 backdrop-blur-xl p-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
-        <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500">Website Clicks</p>
-        <p id="release-website-total" class="mt-4 text-3xl font-bold tracking-tight text-white">0</p>
-        <p class="mt-2 text-sm text-gray-400 leading-relaxed">Tracked locally from download actions made in this browser.</p>
+        <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500">Total Contributors</p>
+        <p id="release-contributor-total" class="mt-4 text-3xl font-bold tracking-tight text-white">--</p>
+        <p class="mt-2 text-sm text-gray-400 leading-relaxed">Current contributor total from the Flick repository.</p>
       </div>
 
       <div data-animate-child class="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-xl p-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
@@ -75,10 +75,10 @@ export function ReleaseNotesPage(): string {
         <div class="max-w-2xl">
           <p class="text-[11px] font-bold tracking-[0.24em] uppercase text-gray-500">Trend View</p>
           <h2 class="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-balance">
-            Downloads Plotted Across Time
+            Downloads and Contributors Across Time
           </h2>
           <p class="mt-3 text-sm md:text-base text-gray-400 leading-relaxed">
-            Filter the timeline to inspect release download totals by publish date and website download clicks grouped into matching date buckets.
+            Filter the timeline to inspect release download totals by publish date and cumulative contributor growth grouped into matching date buckets.
           </p>
         </div>
 
@@ -117,24 +117,24 @@ export function ReleaseNotesPage(): string {
         </article>
 
         <article class="rounded-[1.75rem] border border-white/10 bg-black/20 p-5 md:p-7">
-          <div id="website-downloads-chart" class="min-h-[320px] md:min-h-[360px] rounded-[1.5rem] border border-white/5 bg-white/[0.03] p-3 sm:p-4 md:p-5 text-sm text-gray-500 overflow-hidden">
+          <div id="contributors-chart" class="min-h-[320px] md:min-h-[360px] rounded-[1.5rem] border border-white/5 bg-white/[0.03] p-3 sm:p-4 md:p-5 text-sm text-gray-500 overflow-hidden">
             Preparing timeline...
           </div>
 
           <div class="mt-5 space-y-4">
             <div>
-              <h3 class="text-xl font-bold tracking-tight text-white">Website Click Timeline</h3>
-              <p id="website-downloads-caption" class="mt-2 text-sm text-gray-400">Reading local click history...</p>
+              <h3 class="text-xl font-bold tracking-tight text-white">Contributor Growth</h3>
+              <p id="contributors-caption" class="mt-2 text-sm text-gray-400">Loading contributor history...</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p class="text-[10px] font-bold tracking-[0.22em] uppercase text-gray-500">In View</p>
-                <p id="website-downloads-total" class="mt-2 text-lg font-semibold tracking-tight text-white">0</p>
+                <p id="contributors-total" class="mt-2 text-lg font-semibold tracking-tight text-white">--</p>
               </div>
               <div class="rounded-[1.15rem] border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p class="text-[10px] font-bold tracking-[0.22em] uppercase text-gray-500">Range</p>
-                <p id="website-downloads-range" class="mt-2 text-lg font-semibold tracking-tight text-white">--</p>
+                <p id="contributors-range" class="mt-2 text-lg font-semibold tracking-tight text-white">--</p>
               </div>
             </div>
           </div>
@@ -142,7 +142,7 @@ export function ReleaseNotesPage(): string {
       </div>
 
       <p class="mt-6 text-sm text-gray-500 leading-relaxed">
-        GitHub exposes current asset download totals and release publish dates, so the GitHub chart maps each release total onto its publication date rather than reconstructing day-by-day historical downloads. Website clicks are tracked locally in this browser as dated events.
+        GitHub exposes current asset download totals, release publish dates, and contributor history signals, so these charts compare release totals against contributor growth rather than local browser-specific click tracking.
       </p>
     </div>
 

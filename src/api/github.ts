@@ -450,46 +450,6 @@ function formatBucketDetail(
   return fullDateFormatter.format(timestamp);
 }
 
-function buildWebsiteDownloadTimeline(period: ChartPeriod): TimelineBarPoint[] {
-  const timestamps = getStoredWebsiteDownloadClickTimestamps();
-  if (timestamps.length === 0) return [];
-
-  const resolution = getBucketResolution(period);
-  const now = Date.now();
-  const rawStart =
-    period === "all" ? timestamps[0] : getChartPeriodStart(period, now);
-  const start = getBucketStart(rawStart, resolution);
-  const end = getBucketStart(now, resolution);
-  const countsByBucket = new Map<number, number>();
-
-  timestamps
-    .filter((timestamp) => timestamp >= rawStart && timestamp <= now)
-    .forEach((timestamp) => {
-      const bucketStart = getBucketStart(timestamp, resolution);
-      countsByBucket.set(
-        bucketStart,
-        (countsByBucket.get(bucketStart) ?? 0) + 1,
-      );
-    });
-
-  const points: TimelineBarPoint[] = [];
-
-  for (
-    let cursor = start;
-    cursor <= end;
-    cursor = addBucketStep(cursor, resolution)
-  ) {
-    const value = countsByBucket.get(cursor) ?? 0;
-    points.push({
-      detail: formatBucketDetail(cursor, resolution),
-      shortLabel: formatBucketShortLabel(cursor, resolution),
-      value,
-    });
-  }
-
-  return points;
-}
-
 function getReleasesInPeriod(
   releases: GitHubRelease[],
   period: ChartPeriod,
@@ -1472,7 +1432,13 @@ function renderReleaseNotesAnalytics(
   const contributorResolution = getBucketResolution(period);
 
   renderGitHubDownloadCount(releases);
-  renderContributorCount(contributorCount);
+  renderContributorCount(
+    typeof contributorCount === "number"
+      ? contributorCount
+      : contributorTimeline.length > 0
+        ? contributorTimelineTotal
+        : undefined,
+  );
 
   setTextContent(
     "release-period-downloads",
@@ -1669,13 +1635,12 @@ function incrementWebsiteDownloadClicks(): number {
 
   const nextTotal = getLegacyWebsiteDownloadClicks() + timestamps.length;
   renderWebsiteDownloadClicks(nextTotal);
-  void refreshReleaseNotesAnalyticsIfVisible();
 
   return nextTotal;
 }
 
 export async function fetchLatestRelease() {
-  renderWebsiteDownloadClicks();
+  renderContributorCount();
   renderRepositoryStars();
   bindDownloadButton(getReleasePageUrl());
   setTextContent("version-tag", "Latest release on GitHub");
@@ -1700,20 +1665,30 @@ export async function fetchLatestRelease() {
 }
 
 export async function initReleaseNotesPage() {
-  renderWebsiteDownloadClicks();
+  renderContributorCount();
   renderRepositoryStars();
   updateReleasePeriodButtons(activeReleasePeriod);
   ensureReleaseNotesResizeListener();
 
   try {
-    const [releases, repositoryInfo] = await Promise.all([
-      fetchPublishedReleases(),
-      fetchRepositoryInfo().catch(() => null),
-    ]);
+    const [releases, repositoryInfo, contributors, contributorStats] =
+      await Promise.all([
+        fetchPublishedReleases(),
+        fetchRepositoryInfo().catch(() => null),
+        fetchContributorList().catch(() => null),
+        fetchContributorStats().catch(() => null),
+      ]);
+
+    renderContributorCount(contributors?.length);
 
     // Defer chart rendering so container dimensions are fully resolved after layout.
     requestAnimationFrame(() => {
-      renderReleaseNotesAnalytics(releases, activeReleasePeriod);
+      renderReleaseNotesAnalytics(
+        releases,
+        activeReleasePeriod,
+        contributors?.length,
+        contributorStats,
+      );
     });
 
     renderRepositoryStars(repositoryInfo?.stargazers_count);
@@ -1728,7 +1703,12 @@ export async function initReleaseNotesPage() {
           | ChartPeriod
           | undefined;
         if (!nextPeriod) return;
-        renderReleaseNotesAnalytics(releases, nextPeriod);
+        renderReleaseNotesAnalytics(
+          releases,
+          nextPeriod,
+          contributors?.length,
+          contributorStats,
+        );
       };
     });
   } catch {
@@ -1737,9 +1717,12 @@ export async function initReleaseNotesPage() {
       "Release history could not be loaded from GitHub.",
     );
     renderTimelineEmptyState(
-      "website-downloads-chart",
-      "Local click history is still available once downloads are triggered from this browser.",
+      "contributors-chart",
+      "Contributor history could not be loaded from GitHub.",
     );
+    setTextContent("contributors-caption", "Contributor history is unavailable.");
+    setTextContent("contributors-total", "--");
+    setTextContent("contributors-range", "No data");
     setInnerHtml(
       "release-notes-list",
       `
@@ -1750,22 +1733,85 @@ export async function initReleaseNotesPage() {
   }
 }
 
-export async function fetchContributors() {
-  try {
-    let contributors = readApiCache<GitHubContributor[]>(
-      "flick-api-contributors",
-    );
+async function fetchContributorList(): Promise<GitHubContributor[]> {
+  if (!contributorCachePromise) {
+    contributorCachePromise = (async () => {
+      const cached = readApiCache<GitHubContributor[]>("flick-api-contributors");
+      if (cached) return cached;
 
-    if (!contributors) {
       const res = await githubApiFetch(
         `/repos/${REPO_OWNER}/${REPO_NAME}/contributors`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        throw new Error(
+          `GitHub contributors request failed with status ${res.status}`,
+        );
+      }
+
       const data = await res.json();
-      if (!Array.isArray(data)) return;
-      contributors = data as GitHubContributor[];
+      if (!Array.isArray(data)) {
+        throw new Error("GitHub contributors response was not an array");
+      }
+
+      const contributors = data as GitHubContributor[];
       writeApiCache("flick-api-contributors", contributors);
-    }
+      return contributors;
+    })().catch((error) => {
+      contributorCachePromise = null;
+      throw error;
+    });
+  }
+
+  return contributorCachePromise;
+}
+
+async function fetchContributorStats(): Promise<GitHubContributorStats[]> {
+  if (!contributorStatsCachePromise) {
+    contributorStatsCachePromise = (async () => {
+      const cached = readApiCache<GitHubContributorStats[]>(
+        "flick-api-contributor-stats",
+      );
+      if (cached) return cached;
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const res = await githubApiFetch(
+          `/repos/${REPO_OWNER}/${REPO_NAME}/stats/contributors`,
+        );
+
+        if (res.status === 202) {
+          await delay(CONTRIBUTOR_STATS_RETRY_MS * (attempt + 1));
+          continue;
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `GitHub contributor stats request failed with status ${res.status}`,
+          );
+        }
+
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+          throw new Error("GitHub contributor stats response was not an array");
+        }
+
+        const contributorStats = data as GitHubContributorStats[];
+        writeApiCache("flick-api-contributor-stats", contributorStats);
+        return contributorStats;
+      }
+
+      throw new Error("GitHub contributor stats are still being generated");
+    })().catch((error) => {
+      contributorStatsCachePromise = null;
+      throw error;
+    });
+  }
+
+  return contributorStatsCachePromise;
+}
+
+export async function fetchContributors() {
+  try {
+    const contributors = await fetchContributorList();
 
     renderContributorCount(contributors.length);
 
