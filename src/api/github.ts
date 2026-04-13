@@ -310,6 +310,23 @@ function getTrackedAssets(release: GitHubRelease): GitHubReleaseAsset[] {
   return apkAssets.length > 0 ? apkAssets : assets;
 }
 
+function getPrimaryReleaseAsset(release: GitHubRelease): GitHubReleaseAsset | null {
+  return getTrackedAssets(release)[0] ?? null;
+}
+
+function formatReleaseAssetSize(size?: number): string {
+  if (typeof size !== "number" || size <= 0) {
+    return "Size pending";
+  }
+
+  const sizeInMb = size / (1024 * 1024);
+  if (sizeInMb >= 1024) {
+    return `${(sizeInMb / 1024).toFixed(2)} GB`;
+  }
+
+  return `${sizeInMb.toFixed(1)} MB`;
+}
+
 function getReleaseDownloadTotal(release: GitHubRelease): number {
   return getTrackedAssets(release).reduce((total, asset) => {
     return (
@@ -1834,9 +1851,11 @@ export async function fetchLatestRelease() {
   const renderFlickDownloadState = (
     versionLabel: string,
     downloadUrl: string,
+    sizeLabel: string,
   ): void => {
     setTextContent("version-tag", versionLabel);
     setTextContent("flick-card-version-tag", versionLabel);
+    setTextContent("flick-card-size-tag", sizeLabel);
     bindDownloadButton("download-btn", downloadUrl, true);
     bindDownloadButton("flick-card-download-btn", downloadUrl, true);
     void renderDownloadQrCode(
@@ -1849,8 +1868,10 @@ export async function fetchLatestRelease() {
   const renderLockerDownloadState = (
     versionLabel: string,
     downloadUrl: string,
+    sizeLabel: string,
   ): void => {
     setTextContent("locker-version-tag", versionLabel);
+    setTextContent("locker-size-tag", sizeLabel);
     bindDownloadButton("locker-download-btn", downloadUrl);
     void renderDownloadQrCode(
       "locker-qr-code",
@@ -1859,8 +1880,16 @@ export async function fetchLatestRelease() {
     );
   };
 
-  renderFlickDownloadState("Latest release on GitHub", flickFallbackUrl);
-  renderLockerDownloadState(`${LOCKER_RELEASE_TAG} • Android APK`, lockerFallbackUrl);
+  renderFlickDownloadState(
+    "Latest release on GitHub",
+    flickFallbackUrl,
+    "Size pending",
+  );
+  renderLockerDownloadState(
+    `${LOCKER_RELEASE_TAG} • Android APK`,
+    lockerFallbackUrl,
+    "Size pending",
+  );
 
   try {
     const [releases, repositoryInfo, lockerReleases] = await Promise.all([
@@ -1881,6 +1910,7 @@ export async function fetchLatestRelease() {
       renderFlickDownloadState(
         `v${latestRelease.tag_name} • Android APK`,
         getReleaseDownloadUrl(latestRelease),
+        formatReleaseAssetSize(getPrimaryReleaseAsset(latestRelease)?.size),
       );
     }
 
@@ -1895,6 +1925,7 @@ export async function fetchLatestRelease() {
           LOCKER_REPO_OWNER,
           LOCKER_REPO_NAME,
         ),
+        formatReleaseAssetSize(getPrimaryReleaseAsset(lockerRelease)?.size),
       );
     }
   } catch {

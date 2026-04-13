@@ -5,21 +5,24 @@ export function DownloadsPage(): string {
 
   <div class="max-w-7xl mx-auto px-6 lg:px-16 relative z-10">
     <div class="max-w-4xl" data-animate="fade-up">
-      <a
-        href="#/"
-        class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[11px] font-bold tracking-[0.24em] uppercase text-gray-400 transition-colors hover:text-white hover:bg-white/10"
-      >
-        Downloads
-      </a>
+      <div class="inline-flex items-center gap-4 rounded-[1.5rem] border border-white/10 bg-white/[0.04] px-4 py-4 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
+        <div class="flex h-14 w-14 items-center justify-center rounded-[1.15rem] border border-white/10 bg-[#121212] p-2.5">
+          <img src="/moss_logo_transparent_png.png" alt="Moss logo" class="h-full w-full object-contain" />
+        </div>
+        <div>
+          <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500">Moss</p>
+          <p class="mt-1 text-sm text-gray-300">The ecosystem for Flick, Locker, and future apps.</p>
+        </div>
+      </div>
 
       <p class="mt-6 text-[11px] font-bold tracking-[0.28em] uppercase text-gray-500">
-        Flick Ecosystem
+        Moss Ecosystem
       </p>
       <h1 class="mt-4 text-4xl md:text-6xl font-bold tracking-tight leading-tight text-balance">
-        Scan and download Flick or Locker.
+        Moss ecosystem showcases and downloads.
       </h1>
       <p class="mt-5 text-base md:text-xl text-gray-400 leading-relaxed max-w-3xl">
-        Use the QR codes on your Android device to jump straight to the latest app downloads. Flick leads the listening experience, and Locker expands the ecosystem with secure private storage.
+        Use the QR codes on your Android device to jump straight to the latest app downloads. Moss is the shared home for Flick, Locker, and the rest of the apps that will grow around them.
       </p>
     </div>
 
@@ -27,13 +30,13 @@ export function DownloadsPage(): string {
       <section class="rounded-[2.25rem] border border-white/10 bg-gradient-to-br from-[#181818] to-[#111111] p-6 md:p-8 shadow-[0_24px_80px_rgba(0,0,0,0.45)]" data-animate="fade-up" data-animate-delay="0.08">
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p class="text-[11px] font-bold tracking-[0.24em] uppercase text-gray-500">Mobile Downloads</p>
+            <p class="text-[11px] font-bold tracking-[0.24em] uppercase text-gray-500">Moss App Showcases</p>
             <h2 class="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-balance">
               QR access for both apps
             </h2>
           </div>
           <p class="max-w-xl text-sm text-gray-400 leading-relaxed">
-            Each code opens the current GitHub release destination so users can install directly from their phone.
+            Each showcase opens the current GitHub release destination so users can install directly from their phone.
           </p>
         </div>
 
@@ -45,15 +48,15 @@ export function DownloadsPage(): string {
                   <div class="min-w-0">
                     <p class="text-[10px] font-bold tracking-[0.2em] uppercase text-gray-500">Hi-Fi Player</p>
                     <h3 class="mt-2 text-xl md:text-2xl font-semibold tracking-tight text-white">Flick</h3>
-                    <p class="mt-2 max-w-2xl text-sm text-gray-400 leading-relaxed">Bit-perfect playback, fast scanning, and DAC-aware audio built for the main listening experience.</p>
+                    <p class="mt-2 max-w-2xl text-sm text-gray-400 leading-relaxed">Moss music showcase. Bit-perfect playback, fast scanning, and DAC-aware audio built for the main listening experience.</p>
                   </div>
 
                   <div class="flex flex-wrap gap-2 lg:justify-end">
                     <span id="flick-card-version-tag" class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-300">
                       Loading...
                     </span>
-                    <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                      Android APK
+                    <span id="flick-card-size-tag" class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
+                      Size pending
                     </span>
                   </div>
                 </div>
@@ -105,15 +108,15 @@ export function DownloadsPage(): string {
                   <div class="min-w-0">
                     <p class="text-[10px] font-bold tracking-[0.2em] uppercase text-gray-500">Secure Vault</p>
                     <h3 class="mt-2 text-xl md:text-2xl font-semibold tracking-tight text-white">Locker</h3>
-                    <p class="mt-2 max-w-2xl text-sm text-gray-400 leading-relaxed">Private storage and authentication tools for the broader Flick ecosystem.</p>
+                    <p class="mt-2 max-w-2xl text-sm text-gray-400 leading-relaxed">Moss privacy showcase. Private storage and authentication tools for the broader app ecosystem.</p>
                   </div>
 
                   <div class="flex flex-wrap gap-2 lg:justify-end">
                     <span id="locker-version-tag" class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-300">
                       v1.4.0
                     </span>
-                    <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                      Android APK
+                    <span id="locker-size-tag" class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
+                      Size pending
                     </span>
                   </div>
                 </div>
@@ -163,9 +166,9 @@ export function DownloadsPage(): string {
       <div class="grid gap-4 xl:grid-cols-2" data-animate="fade-up" data-animate-delay="0.14">
         <article class="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
           <p class="text-[10px] font-bold tracking-[0.24em] uppercase text-gray-500">Why here</p>
-          <h3 class="mt-3 text-xl font-bold tracking-tight text-white">A cleaner dedicated download surface</h3>
+          <h3 class="mt-3 text-xl font-bold tracking-tight text-white">A cleaner home for Moss</h3>
           <p class="mt-3 text-sm text-gray-400 leading-relaxed">
-            The homepage stays focused on Flick itself, while this page becomes the place to install apps across the growing ecosystem.
+            The homepage stays focused on Flick itself, while this page becomes the shared Moss space for app showcases, installs, and future additions.
           </p>
         </article>
 
