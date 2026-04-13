@@ -8,7 +8,9 @@ function getRouteLinkClasses(isActive: boolean): string {
     : "text-gray-400 hover:text-white hover:bg-white/8";
 }
 
-export function Navbar(currentRoute: "home" | "release-notes" = "home"): string {
+export function Navbar(
+  currentRoute: "home" | "downloads" | "release-notes" = "home",
+): string {
   return `
 <nav id="main-nav" class="fixed top-0 left-0 w-full flex justify-between items-center px-6 md:px-8 lg:px-16 py-4 md:py-6 z-50 transition-all duration-300">
   
@@ -30,6 +32,12 @@ export function Navbar(currentRoute: "home" | "release-notes" = "home"): string 
         class="inline-flex items-center justify-center rounded-full px-3 py-2 text-[11px] md:text-xs font-bold tracking-[0.18em] uppercase transition-all ${getRouteLinkClasses(currentRoute === "release-notes")}"
       >
         Releases
+      </a>
+      <a
+        href="#/downloads"
+        class="inline-flex items-center justify-center rounded-full px-3 py-2 text-[11px] md:text-xs font-bold tracking-[0.18em] uppercase transition-all ${getRouteLinkClasses(currentRoute === "downloads")}"
+      >
+        Downloads
       </a>
     </div>
   </div>

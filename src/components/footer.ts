@@ -1,16 +1,18 @@
 import flicklogo from "../assets/flicklogo_transparent.png";
 
-export function Footer(currentRoute: "home" | "release-notes" = "home"): string {
+export function Footer(
+  currentRoute: "home" | "downloads" | "release-notes" = "home",
+): string {
   const secondaryAction =
-    currentRoute === "release-notes"
+    currentRoute === "home"
       ? `
-          <a href="#/" class="inline-flex justify-center items-center space-x-3 bg-transparent text-white border border-white/20 px-8 py-4 rounded-xl font-bold hover:bg-white/5 transition-all active:scale-95">
-            <span>Back Home</span>
-          </a>`
-      : `
           <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="inline-flex justify-center items-center space-x-3 bg-transparent text-white border border-white/20 px-8 py-4 rounded-xl font-bold hover:bg-white/5 transition-all active:scale-95">
             <span>Back to Top</span>
-          </button>`;
+          </button>`
+      : `
+          <a href="#/" class="inline-flex justify-center items-center space-x-3 bg-transparent text-white border border-white/20 px-8 py-4 rounded-xl font-bold hover:bg-white/5 transition-all active:scale-95">
+            <span>Back Home</span>
+          </a>`;
 
   return `
 <section class="bg-[#101010] text-white pt-24 pb-12 relative z-20">
@@ -52,6 +54,7 @@ export function Footer(currentRoute: "home" | "release-notes" = "home"): string 
       </div>
 
       <div class="flex flex-wrap justify-center gap-x-8 gap-y-3 text-sm font-medium text-gray-500">
+        <a href="#/downloads" class="hover:text-white transition-colors">Downloads</a>
         <a href="#/release-notes" class="hover:text-white transition-colors">Release Notes</a>
         <a href="https://github.com/ultraelectronica/Flick/releases" target="_blank" rel="noopener" class="hover:text-white transition-colors">GitHub Releases</a>
         <a href="https://github.com/ultraelectronica/Flick/issues" target="_blank" rel="noopener" class="hover:text-white transition-colors">Issue Tracker</a>
