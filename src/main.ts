@@ -1,5 +1,5 @@
 import "./style.css";
-import { Navbar, initNavbarScroll } from "./components/navbar";
+import { Navbar, initMobileNavbar, initNavbarScroll } from "./components/navbar";
 import { Hero } from "./components/hero";
 import { Features } from "./components/features";
 import { Specs } from "./components/specs";
@@ -59,6 +59,7 @@ function renderApp(): void {
     ${Footer(route)}
   `;
 
+  initMobileNavbar();
   initNavbarScroll();
   initNavbarAnimation();
   initAnimations();

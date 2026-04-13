@@ -2158,10 +2158,12 @@ export async function fetchLatestCommit() {
       writeApiCache("flick-api-commit", shortSha);
     }
 
-    const navVersionTag = document.getElementById("nav-version-tag");
-    if (navVersionTag) {
-      navVersionTag.textContent = shortSha;
-    }
+    const navVersionTags = document.querySelectorAll(
+      "#nav-version-tag, #mobile-nav-version-tag",
+    );
+    navVersionTags.forEach((tag) => {
+      tag.textContent = shortSha;
+    });
   } catch {
     // Silently fail — keep the placeholder
   }
