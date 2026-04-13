@@ -5,6 +5,7 @@ import { Features } from "./components/features";
 import { Specs } from "./components/specs";
 import { Contributors } from "./components/contributors";
 import { Footer } from "./components/footer";
+import { DownloadsPage } from "./components/downloads-page";
 import { ReleaseNotesPage } from "./components/release-notes-page";
 import {
   fetchLatestRelease,
@@ -18,11 +19,13 @@ import {
   initNavbarAnimation,
 } from "./animations";
 
-type AppRoute = "home" | "release-notes";
+type AppRoute = "home" | "downloads" | "release-notes";
 
 function getCurrentRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
-  return hash === "release-notes" ? "release-notes" : "home";
+  if (hash === "release-notes") return "release-notes";
+  if (hash === "downloads") return "downloads";
+  return "home";
 }
 
 function renderHomePage(): string {
@@ -34,13 +37,21 @@ function renderHomePage(): string {
   `;
 }
 
+function renderDownloadsPage(): string {
+  return DownloadsPage();
+}
+
 function renderApp(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
   if (!app) return;
 
   const route = getCurrentRoute();
   const pageMarkup =
-    route === "release-notes" ? ReleaseNotesPage() : renderHomePage();
+    route === "release-notes"
+      ? ReleaseNotesPage()
+      : route === "downloads"
+        ? renderDownloadsPage()
+        : renderHomePage();
 
   app.innerHTML = `
     ${Navbar(route)}
@@ -59,8 +70,13 @@ function renderApp(): void {
     return;
   }
 
-  initHeroAnimation();
   fetchLatestRelease();
+
+  if (route === "downloads") {
+    return;
+  }
+
+  initHeroAnimation();
   fetchContributors();
 }
 

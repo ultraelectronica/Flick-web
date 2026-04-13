@@ -16,6 +16,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "motion": "^12.38.0",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^4.2.2"
   }
 }
