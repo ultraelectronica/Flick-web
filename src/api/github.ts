@@ -1,9 +1,14 @@
 import { animate, stagger } from "motion";
+import QRCode from "qrcode";
 
 const REPO_OWNER = "ultraelectronica";
 const REPO_NAME = "Flick";
+const LOCKER_REPO_OWNER = "ultraelectronica";
+const LOCKER_REPO_NAME = "Locker";
+const LOCKER_RELEASE_TAG = "v1.4.0";
 const RELEASES_PER_PAGE = 100;
 const MAX_RELEASE_PAGES = 10;
+const QR_CODE_SIZE = 160;
 const LEGACY_WEBSITE_DOWNLOAD_CLICK_STORAGE_KEY =
   "flick-website-download-clicks";
 const WEBSITE_DOWNLOAD_CLICK_TIMESTAMPS_STORAGE_KEY =
@@ -131,7 +136,7 @@ interface TimelineChartLayout {
   yAxisFontSize: number;
 }
 
-let releaseCachePromise: Promise<GitHubRelease[]> | null = null;
+const releaseCachePromises = new Map<string, Promise<GitHubRelease[]>>();
 let repositoryInfoCachePromise: Promise<GitHubRepositoryInfo> | null = null;
 let contributorCachePromise: Promise<GitHubContributor[]> | null = null;
 let contributorStatsCachePromise: Promise<GitHubContributorStats[]> | null =
@@ -232,18 +237,94 @@ function renderContributorCount(count?: number): void {
   setTextContent("release-contributor-total", formattedCount);
 }
 
-function getReleasePageUrl(tagName?: string): string {
+function getReleaseCacheKey(owner: string, repo: string): string {
+  return `github-api-releases:${owner.toLowerCase()}/${repo.toLowerCase()}`;
+}
+
+function getRepositoryReleasePageUrl(
+  owner: string,
+  repo: string,
+  tagName?: string,
+): string {
   if (!tagName) {
-    return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases`;
+    return `https://github.com/${owner}/${repo}/releases`;
   }
 
-  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${encodeURIComponent(tagName)}`;
+  return `https://github.com/${owner}/${repo}/releases/tag/${encodeURIComponent(tagName)}`;
+}
+
+function getReleasePageUrl(tagName?: string): string {
+  return getRepositoryReleasePageUrl(REPO_OWNER, REPO_NAME, tagName);
+}
+
+function getPreferredRelease(
+  releases: GitHubRelease[],
+  preferredTag?: string,
+): GitHubRelease | null {
+  if (preferredTag) {
+    const taggedRelease = releases.find(
+      (release) => release.tag_name === preferredTag,
+    );
+    if (taggedRelease) return taggedRelease;
+  }
+
+  return releases.find((release) => !release.prerelease) ?? releases[0] ?? null;
+}
+
+async function renderDownloadQrCode(
+  elementId: string,
+  downloadUrl: string,
+  altText: string,
+): Promise<void> {
+  const qrContainer = document.getElementById(elementId);
+  if (!qrContainer) return;
+
+  try {
+    const qrMarkup = await QRCode.toString(downloadUrl, {
+      color: {
+        dark: "#101010",
+        light: "#FFFFFFFF",
+      },
+      errorCorrectionLevel: "M",
+      margin: 1,
+      type: "svg",
+      width: QR_CODE_SIZE,
+    });
+
+    qrContainer.innerHTML = qrMarkup;
+    const svg = qrContainer.querySelector("svg");
+    if (svg) {
+      svg.setAttribute("aria-label", altText);
+      svg.setAttribute("focusable", "false");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("class", "h-full w-full");
+    }
+  } catch {
+    qrContainer.textContent = "QR unavailable";
+  }
 }
 
 function getTrackedAssets(release: GitHubRelease): GitHubReleaseAsset[] {
   const assets = Array.isArray(release.assets) ? release.assets : [];
   const apkAssets = assets.filter((asset) => asset.name.endsWith(".apk"));
   return apkAssets.length > 0 ? apkAssets : assets;
+}
+
+function getPrimaryReleaseAsset(release: GitHubRelease): GitHubReleaseAsset | null {
+  return getTrackedAssets(release)[0] ?? null;
+}
+
+function formatReleaseAssetSize(size?: number): string {
+  if (typeof size !== "number" || size <= 0) {
+    return "Size pending";
+  }
+
+  const sizeInMb = size / (1024 * 1024);
+  if (sizeInMb >= 1024) {
+    return `${(sizeInMb / 1024).toFixed(2)} GB`;
+  }
+
+  return `${sizeInMb.toFixed(1)} MB`;
 }
 
 function getReleaseDownloadTotal(release: GitHubRelease): number {
@@ -255,11 +336,15 @@ function getReleaseDownloadTotal(release: GitHubRelease): number {
   }, 0);
 }
 
-function getReleaseDownloadUrl(release: GitHubRelease): string {
+function getReleaseDownloadUrl(
+  release: GitHubRelease,
+  owner = REPO_OWNER,
+  repo = REPO_NAME,
+): string {
   const apkAsset = release.assets?.find((asset) => asset.name.endsWith(".apk"));
   const url = apkAsset?.browser_download_url;
   if (url && isGitHubUrl(url)) return url;
-  return getReleasePageUrl(release.tag_name);
+  return getRepositoryReleasePageUrl(owner, repo, release.tag_name);
 }
 
 function getReleasePublishedTimestamp(release: GitHubRelease): number {
@@ -351,14 +436,18 @@ function renderWebsiteDownloadClicks(
   setTextContent("release-website-total", formatCount(count));
 }
 
-function bindDownloadButton(downloadUrl: string): void {
-  const downloadBtn = document.getElementById(
-    "download-btn",
-  ) as HTMLButtonElement | null;
+function bindDownloadButton(
+  buttonId: string,
+  downloadUrl: string,
+  shouldTrackWebsiteClicks = false,
+): void {
+  const downloadBtn = document.getElementById(buttonId) as HTMLButtonElement | null;
   if (!downloadBtn) return;
 
   downloadBtn.onclick = () => {
-    incrementWebsiteDownloadClicks();
+    if (shouldTrackWebsiteClicks) {
+      incrementWebsiteDownloadClicks();
+    }
     window.open(downloadUrl, "_blank", "noopener");
   };
 }
@@ -1652,51 +1741,61 @@ function ensureReleaseNotesResizeListener(): void {
   releaseNotesResizeListenerBound = true;
 }
 
-async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
-  if (!releaseCachePromise) {
-    releaseCachePromise = (async () => {
-      const cached = readApiCache<GitHubRelease[]>("flick-api-releases");
-      if (cached) return cached;
+async function fetchPublishedReleasesForRepo(
+  owner: string,
+  repo: string,
+): Promise<GitHubRelease[]> {
+  const cacheKey = getReleaseCacheKey(owner, repo);
+  const cachedPromise = releaseCachePromises.get(cacheKey);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
 
-      const releases: GitHubRelease[] = [];
+  const requestPromise = (async () => {
+    const cached = readApiCache<GitHubRelease[]>(cacheKey);
+    if (cached) return cached;
 
-      for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
-        const res = await githubApiFetch(
-          `/repos/${REPO_OWNER}/${REPO_NAME}/releases`,
-          `per_page=${RELEASES_PER_PAGE}&page=${page}`,
+    const releases: GitHubRelease[] = [];
+
+    for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
+      const res = await githubApiFetch(
+        `/repos/${owner}/${repo}/releases`,
+        `per_page=${RELEASES_PER_PAGE}&page=${page}`,
+      );
+      if (!res.ok) {
+        throw new Error(
+          `GitHub releases request failed with status ${res.status}`,
         );
-        if (!res.ok) {
-          throw new Error(
-            `GitHub releases request failed with status ${res.status}`,
-          );
-        }
-
-        const pageReleases: unknown = await res.json();
-        if (!Array.isArray(pageReleases) || pageReleases.length === 0) break;
-
-        releases.push(...(pageReleases as GitHubRelease[]));
-        if (pageReleases.length < RELEASES_PER_PAGE) break;
       }
 
-      const sorted = releases
-        .filter((release) => !release.draft)
-        .sort(
-          (left, right) =>
-            getReleasePublishedTimestamp(right) -
-            getReleasePublishedTimestamp(left),
-        );
+      const pageReleases: unknown = await res.json();
+      if (!Array.isArray(pageReleases) || pageReleases.length === 0) break;
 
-      writeApiCache("flick-api-releases", sorted);
-      return sorted;
-    })();
-  }
+      releases.push(...(pageReleases as GitHubRelease[]));
+      if (pageReleases.length < RELEASES_PER_PAGE) break;
+    }
 
-  try {
-    return await releaseCachePromise;
-  } catch (error) {
-    releaseCachePromise = null;
+    const sorted = releases
+      .filter((release) => !release.draft)
+      .sort(
+        (left, right) =>
+          getReleasePublishedTimestamp(right) -
+          getReleasePublishedTimestamp(left),
+      );
+
+    writeApiCache(cacheKey, sorted);
+    return sorted;
+  })().catch((error) => {
+    releaseCachePromises.delete(cacheKey);
     throw error;
-  }
+  });
+
+  releaseCachePromises.set(cacheKey, requestPromise);
+  return requestPromise;
+}
+
+async function fetchPublishedReleases(): Promise<GitHubRelease[]> {
+  return fetchPublishedReleasesForRepo(REPO_OWNER, REPO_NAME);
 }
 
 async function fetchRepositoryInfo(): Promise<GitHubRepositoryInfo> {
@@ -1741,25 +1840,96 @@ function incrementWebsiteDownloadClicks(): number {
 export async function fetchLatestRelease() {
   renderContributorCount();
   renderRepositoryStars();
-  bindDownloadButton(getReleasePageUrl());
-  setTextContent("version-tag", "Latest release on GitHub");
+
+  const flickFallbackUrl = getReleasePageUrl();
+  const lockerFallbackUrl = getRepositoryReleasePageUrl(
+    LOCKER_REPO_OWNER,
+    LOCKER_REPO_NAME,
+    LOCKER_RELEASE_TAG,
+  );
+
+  const renderFlickDownloadState = (
+    versionLabel: string,
+    downloadUrl: string,
+    sizeLabel: string,
+  ): void => {
+    setTextContent("version-tag", versionLabel);
+    setTextContent("flick-card-version-tag", versionLabel);
+    setTextContent("flick-card-size-tag", sizeLabel);
+    bindDownloadButton("download-btn", downloadUrl, true);
+    bindDownloadButton("flick-card-download-btn", downloadUrl, true);
+    void renderDownloadQrCode(
+      "flick-qr-code",
+      downloadUrl,
+      `Scan to download Flick (${versionLabel})`,
+    );
+  };
+
+  const renderLockerDownloadState = (
+    versionLabel: string,
+    downloadUrl: string,
+    sizeLabel: string,
+  ): void => {
+    setTextContent("locker-version-tag", versionLabel);
+    setTextContent("locker-size-tag", sizeLabel);
+    bindDownloadButton("locker-download-btn", downloadUrl);
+    void renderDownloadQrCode(
+      "locker-qr-code",
+      downloadUrl,
+      `Scan to download Locker (${versionLabel})`,
+    );
+  };
+
+  renderFlickDownloadState(
+    "Latest release on GitHub",
+    flickFallbackUrl,
+    "Size pending",
+  );
+  renderLockerDownloadState(
+    `${LOCKER_RELEASE_TAG} • Android APK`,
+    lockerFallbackUrl,
+    "Size pending",
+  );
 
   try {
-    const [releases, repositoryInfo] = await Promise.all([
-      fetchPublishedReleases(),
+    const [releases, repositoryInfo, lockerReleases] = await Promise.all([
+      fetchPublishedReleases().catch(() => null),
       fetchRepositoryInfo().catch(() => null),
+      fetchPublishedReleasesForRepo(LOCKER_REPO_OWNER, LOCKER_REPO_NAME).catch(
+        () => null,
+      ),
     ]);
-    if (releases.length === 0) return;
 
-    const latestRelease =
-      releases.find((release) => !release.prerelease) ?? releases[0];
-
-    setTextContent("version-tag", `v${latestRelease.tag_name} • Android APK`);
-    renderGitHubDownloadCount(releases);
     renderRepositoryStars(repositoryInfo?.stargazers_count);
-    bindDownloadButton(getReleaseDownloadUrl(latestRelease));
+
+    const latestRelease = releases ? getPreferredRelease(releases) : null;
+    if (releases) {
+      renderGitHubDownloadCount(releases);
+    }
+    if (latestRelease) {
+      renderFlickDownloadState(
+        `v${latestRelease.tag_name} • Android APK`,
+        getReleaseDownloadUrl(latestRelease),
+        formatReleaseAssetSize(getPrimaryReleaseAsset(latestRelease)?.size),
+      );
+    }
+
+    const lockerRelease = lockerReleases
+      ? getPreferredRelease(lockerReleases, LOCKER_RELEASE_TAG)
+      : null;
+    if (lockerRelease) {
+      renderLockerDownloadState(
+        `${lockerRelease.tag_name} • Android APK`,
+        getReleaseDownloadUrl(
+          lockerRelease,
+          LOCKER_REPO_OWNER,
+          LOCKER_REPO_NAME,
+        ),
+        formatReleaseAssetSize(getPrimaryReleaseAsset(lockerRelease)?.size),
+      );
+    }
   } catch {
-    // Silently fail — the fallback release link and local click counter stay active.
+    // Silently fail — fallback release links and QR codes stay active.
   }
 }
 
@@ -1988,10 +2158,12 @@ export async function fetchLatestCommit() {
       writeApiCache("flick-api-commit", shortSha);
     }
 
-    const navVersionTag = document.getElementById("nav-version-tag");
-    if (navVersionTag) {
-      navVersionTag.textContent = shortSha;
-    }
+    const navVersionTags = document.querySelectorAll(
+      "#nav-version-tag, #mobile-nav-version-tag",
+    );
+    navVersionTags.forEach((tag) => {
+      tag.textContent = shortSha;
+    });
   } catch {
     // Silently fail — keep the placeholder
   }
